@@ -5,7 +5,6 @@ python-dotenv
 pydantic
 tqdm
 gTTS
-playsound
 pandas
 numpy
 matplotlib
