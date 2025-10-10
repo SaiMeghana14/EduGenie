@@ -1,0 +1,8 @@
+streamlit
+openai
+boto3
+python-dotenv
+pydantic
+tqdm
+gTTS
+playsound
