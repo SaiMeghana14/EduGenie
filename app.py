@@ -16,28 +16,12 @@ with open(DATA_FILE, "r", encoding="utf-8") as f:
     LESSONS = json.load(f)
 
 # CSS - clean, minimal, polished
-def local_css():
-    st.markdown(
-        """
-        <style>
-        /* page background */
-        .stApp { background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%); }
-        /* header */
-        .header { font-size:28px; font-weight:700; color:#0b3d91; }
-        .subheader { color:#243b6b; }
-        /* chat bubbles */
-        .user-bubble { background:#e6f0ff; padding:10px; border-radius:8px; margin:6px 0; }
-        .agent-bubble { background:#fff; border:1px solid #e6eefb; padding:10px; border-radius:8px; margin:6px 0; }
-        /* buttons */
-        .stButton>button { background:#0b3d91; color:white; border-radius:8px; padding:6px 12px; }
-        /* compact sidebar */
-        .sidebar .stButton>button { background:#0b3d91; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+def local_css(file_name):
+    with open(file_name) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-local_css()
+# Load custom CSS
+local_css("assets/custom.css")
 
 # Initialize agent in session
 if "agent" not in st.session_state:
