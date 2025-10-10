@@ -1,34 +1,142 @@
-# agent.py
+"""
+EduGenieAgent - supports OpenAI (local testing) and Amazon Bedrock (production / hackathon).
+- chat_with_bedrock implements a robust invoke_model using boto3 bedrock-runtime client.
+- generate_structured_quiz requests JSON-formatted quizzes from the LLM and parses them.
+- Fallbacks provided if LLM or parsing fails.
+"""
+
 import os
 import json
 import time
+import logging
 from typing import List, Dict, Any, Optional
 
-# Primary LLM wrapper: supports OpenAI (default) and pluggable methods for AWS Bedrock
-try:
-    import openai
-except Exception:
-    openai = None
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # or "bedrock"
-
-# Safety: Use relatively small tokens in hackathon setting
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # change if you don't have access
+# LLM provider selection
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # "openai" or "bedrock"
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
+DEFAULT_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 
-if LLM_PROVIDER == "openai" and OPENAI_API_KEY:
-    openai.api_key = OPENAI_API_KEY
+# OpenAI client (optional quick local testing)
+openai = None
+if LLM_PROVIDER == "openai":
+    try:
+        import openai as _openai
+        openai = _openai
+        openai.api_key = os.getenv("OPENAI_API_KEY", None)
+    except Exception:
+        openai = None
 
-def chat_with_openai(system_prompt: str, messages: List[Dict[str,str]], max_tokens=512, temperature=DEFAULT_TEMPERATURE) -> str:
+# Bedrock / boto3
+bedrock_client = None
+if LLM_PROVIDER == "bedrock":
+    try:
+        import boto3
+        from botocore.exceptions import BotoCoreError, ClientError
+        bedrock_client = boto3.client("bedrock-runtime")
+    except Exception:
+        bedrock_client = None
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+
+# ------------------------------
+# Helpers: Bedrock invoke wrapper
+# ------------------------------
+def _invoke_bedrock_model(model_id: str, input_text: str, 
+                          content_type: str = "application/json",
+                          accept: str = "application/json",
+                          max_tokens: int = DEFAULT_MAX_TOKENS,
+                          temperature: float = DEFAULT_TEMPERATURE) -> str:
     """
-    Send chat to OpenAI. messages: [{'role':'user'/'assistant'/'system', 'content':'...'}]
+    Invoke a Bedrock model via boto3 bedrock-runtime client.
+    Sends a JSON body with a standard "input" field. Handles common response shapes
+    and returns the generated text as a single string. Robust to variations in response.
+    Requires AWS credentials set in the environment/instance profile and proper IAM: bedrock:InvokeModel.
+    See Bedrock docs for model-specific parameter shapes. :contentReference[oaicite:1]{index=1}
     """
+    if bedrock_client is None:
+        raise RuntimeError("Bedrock client not initialized. Ensure LLM_PROVIDER=bedrock and boto3 configured.")
+
+    # The request body structure differs by model; many accept {"input": "..."} for text prompts.
+    payload = {
+        "input": input_text,
+        "maxTokens": max_tokens,
+        "temperature": temperature
+    }
+    body_bytes = json.dumps(payload).encode("utf-8")
+
+    try:
+        resp = bedrock_client.invoke_model(
+            modelId=model_id,
+            contentType=content_type,
+            accept=accept,
+            body=body_bytes
+        )
+    except Exception as e:
+        logger.exception("Bedrock invoke_model failed")
+        raise
+
+    # Read response body (stream-like)
+    raw = None
+    try:
+        # For many SDK versions: resp['body'] is a StreamingBody
+        body_stream = resp.get("body")
+        if body_stream is not None:
+            raw = body_stream.read().decode("utf-8")
+        else:
+            # some responses may be in 'blob' or direct fields
+            raw = json.dumps(resp)
+    except Exception:
+        raw = json.dumps(resp)
+
+    # Try to parse known response shapes
+    # Common Bedrock text output shapes:
+    # 1) {"outputs":[{"content":[{"type":"text/plain","text":"..."}]}]}
+    # 2) Amazon titan returns {"output":"..."} or raw text
+    # 3) Anthropic or other vendor wrappers may vary.
+    try:
+        parsed = json.loads(raw)
+        # shape 1
+        if isinstance(parsed, dict):
+            # Check outputs.content.text
+            outputs = parsed.get("outputs")
+            if outputs and isinstance(outputs, list):
+                for o in outputs:
+                    content = o.get("content")
+                    if isinstance(content, list):
+                        for c in content:
+                            if isinstance(c, dict) and c.get("type") in ("text/plain", "text"):
+                                text = c.get("text") or c.get("text")
+                                if text:
+                                    return text
+            # direct text
+            if "output" in parsed and isinstance(parsed["output"], str):
+                return parsed["output"]
+            # sometimes model returns 'results' or 'generated_text'
+            for key in ("generated_text", "result", "text"):
+                if key in parsed and isinstance(parsed[key], str):
+                    return parsed[key]
+    except Exception:
+        # not JSON or unexpected shape -> fall through and return raw
+        pass
+
+    # If above parsing didn't return, attempt naive extraction
+    # If raw looks like JSON but couldn't parse to text, return raw string
+    return raw
+
+
+# ------------------------------
+# OpenAI wrapper (quick local testing)
+# ------------------------------
+def _invoke_openai_chat(system_prompt: str, messages: List[Dict[str, str]],
+                        model: str = None, temperature: float = DEFAULT_TEMPERATURE,
+                        max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
     if openai is None:
-        raise RuntimeError("openai package not installed. Install from requirements or set LLM_PROVIDER.")
-    # note: model naming might vary based on your access
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    payload_messages = [{"role":"system", "content": system_prompt}] + messages
+        raise RuntimeError("OpenAI client not available. Set OPENAI_API_KEY and install openai.")
+    model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    # Build messages for OpenAI API: include system then conversation messages
+    payload_messages = [{"role": "system", "content": system_prompt}] + messages
     resp = openai.ChatCompletion.create(
         model=model,
         messages=payload_messages,
@@ -38,48 +146,109 @@ def chat_with_openai(system_prompt: str, messages: List[Dict[str,str]], max_toke
     text = resp.choices[0].message.content
     return text
 
-# Placeholder Bedrock interface (commented) - fill in with actual AWS calls if you have access.
-def chat_with_bedrock(system_prompt: str, messages: List[Dict[str,str]], max_tokens=512, temperature=DEFAULT_TEMPERATURE) -> str:
-    """
-    Implement Bedrock call here using boto3 client for bedrock-runtime.
-    For hackathon, you can replace with OpenAI above if Bedrock not available.
-    """
-    # Example pseudocode:
-    # import boto3
-    # client = boto3.client('bedrock-runtime')
-    # request_payload = { ... }
-    # response = client.invoke_model(...)
-    raise NotImplementedError("Bedrock integration not implemented. Use OpenAI or implement Bedrock API call here.")
 
+# ------------------------------
+# EduGenieAgent class
+# ------------------------------
 class EduGenieAgent:
-    def __init__(self, persona: Optional[str]=None):
-        self.persona = persona or "You are EduGenie, a friendly, patient AI tutor. Keep answers clear, concise and pedagogical."
-        # simple memory - not persistent; full persistence handled elsewhere
-        self.conversation_history: List[Dict[str,str]] = []
+    def __init__(self, persona: Optional[str] = None, bedrock_model: Optional[str] = None):
+        self.persona = persona or ("You are EduGenie, a friendly patient AI tutor. "
+                                   "Provide clear, step-by-step explanations, short examples, "
+                                   "and short quizzes when appropriate.")
+        self.history: List[Dict[str, str]] = []
+        self.bedrock_model = bedrock_model or os.getenv("BEDROCK_MODEL_ID", "amazon.titan-text-express-v1")
+        logger.info("EduGenieAgent initialized with provider=%s model=%s", LLM_PROVIDER, self.bedrock_model)
 
-    def ask(self, user_text: str, context: Optional[List[Dict[str,str]]]=None) -> str:
+    def ask(self, user_text: str, max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
         """
-        Main method to ask the LLM. Keeps conversation memory for the session.
+        Generic chat interface. Keeps a small local conversation history (session).
         """
-        context = context or []
-        self.conversation_history.append({"role":"user", "content":user_text})
-        messages = context + self.conversation_history[-6:]  # keep last few messages
+        # append user
+        self.history.append({"role": "user", "content": user_text})
+        # build messages (last few turns)
+        messages = self.history[-6:]  # keep last 6 for context
+
         if LLM_PROVIDER == "openai":
-            out = chat_with_openai(self.persona, messages)
+            resp = _invoke_openai_chat(self.persona, messages, temperature=DEFAULT_TEMPERATURE, max_tokens=max_tokens)
         else:
-            out = chat_with_bedrock(self.persona, messages)
-        self.conversation_history.append({"role":"assistant", "content":out})
-        return out
+            # For bedrock we convert messages to a single prompt text
+            prompt = self._messages_to_prompt(messages)
+            resp = _invoke_bedrock_model(self.bedrock_model, prompt, max_tokens=max_tokens, temperature=DEFAULT_TEMPERATURE)
+        # append assistant answer
+        self.history.append({"role": "assistant", "content": resp})
+        return resp
 
-    def explain_step_by_step(self, concept: str, style: str="simple") -> str:
-        prompt = f"Explain the concept '{concept}' in a {style} manner with examples and a short 2-question quiz at the end."
-        return self.ask(prompt)
+    def _messages_to_prompt(self, messages: List[Dict[str, str]]) -> str:
+        """
+        Convert messages list to a single text prompt for Bedrock models.
+        This is a simple format: persona + conversation turn markers.
+        """
+        lines = [f"System: {self.persona}", ""]
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            prefix = "User" if role == "user" else "Assistant"
+            lines.append(f"{prefix}: {content}")
+        lines.append("\nAssistant:")
+        return "\n".join(lines)
 
-    def generate_quiz(self, topic: str, difficulty: str="easy", num_q: int=3) -> Dict[str, Any]:
+    # --------------------------
+    # Structured quiz generation
+    # --------------------------
+    def generate_structured_quiz(self, topic: str, difficulty: str = "easy", num_questions: int = 3) -> Dict[str, Any]:
         """
-        Basic prompt to generate multiple choice quizzes; fallback to local heuristics if LLM not configured.
+        Ask LLM to return a JSON object with quizzes:
+        {
+          "topic": "...",
+          "questions": [
+             { "question": "...", "options": ["a","b","c","d"], "answer_index": 1, "explain": "..." }
+          ]
+        }
+        This method tries to parse the returned JSON. If parsing fails, it provides a fallback simple quiz.
         """
-        prompt = f"Create {num_q} multiple choice questions (4 options each) on '{topic}' at {difficulty} difficulty. Provide answer and 1-line explanation for each."
-        resp = self.ask(prompt)
-        # Try to parse structured output; if not, return text block
-        return {"raw": resp}
+        system = ("You are EduGenie, an expert teacher. Return valid JSON only. "
+                  "Format exactly: {\"topic\":\"...\",\"questions\":[{\"question\":\"..\",\"options\":[\"..\",\"..\",\"..\",\"..\"],\"answer_index\":<0-3>,\"explain\":\"...\"}, ...] }")
+        user_prompt = (f"Create {num_questions} multiple-choice questions on the topic '{topic}' at '{difficulty}' difficulty. "
+                       "Each question must have 4 options. Provide the correct option's index with 0-based indexing. "
+                       "Return JSON only with the schema described.")
+        # For bedrock combine system + user into a single prompt string
+        if LLM_PROVIDER == "openai":
+            messages = [{"role": "system", "content": system}, {"role": "user", "content": user_prompt}]
+            raw = _invoke_openai_chat(system, messages, max_tokens=800)
+        else:
+            prompt = system + "\n\n" + user_prompt
+            raw = _invoke_bedrock_model(self.bedrock_model, prompt, max_tokens=800)
+        # Try to extract JSON substring (robust)
+        parsed = None
+        try:
+            # Sometimes models add text before/after JSON. Extract first JSON-like block.
+            start = raw.find("{")
+            end = raw.rfind("}") + 1
+            if start != -1 and end != -1 and end > start:
+                json_blob = raw[start:end]
+                parsed = json.loads(json_blob)
+        except Exception:
+            parsed = None
+
+        # Validate parsed structure
+        if parsed and isinstance(parsed, dict) and "questions" in parsed:
+            # basic sanity checks - ensure options lists and answer_index exist
+            questions = parsed.get("questions", [])
+            valid_questions = []
+            for q in questions:
+                if all(k in q for k in ("question", "options", "answer_index")) and isinstance(q["options"], list) and len(q["options"]) >= 2:
+                    valid_questions.append(q)
+            if len(valid_questions) >= 1:
+                return {"topic": parsed.get("topic", topic), "questions": valid_questions}
+
+        # Fallback: simple rule-based quiz generator (very basic)
+        logger.warning("Structured quiz parsing failed. Using fallback generator. Raw LLM output: %s", raw[:200])
+        fallback = {"topic": topic, "questions": []}
+        for i in range(num_questions):
+            fallback["questions"].append({
+                "question": f"SAMPLE: {topic} question {i+1} (fallback)",
+                "options": ["Option A", "Option B", "Option C", "Option D"],
+                "answer_index": 0,
+                "explain": "Fallback explanation: placeholder."
+            })
+        return fallback
