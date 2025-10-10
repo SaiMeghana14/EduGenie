@@ -6,3 +6,10 @@ pydantic
 tqdm
 gTTS
 playsound
+pandas
+numpy
+matplotlib
+seaborn
+plotly
+boto3
+requests
