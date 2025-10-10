@@ -8,6 +8,26 @@ from typing import Optional, Dict, Any
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 USE_AWS = os.getenv("USE_AWS", "false").lower() == "true"
 
+translate = boto3.client("translate")
+polly = boto3.client("polly")
+
+def translate_text(text, target_lang="hi"):
+    response = translate.translate_text(
+        Text=text,
+        SourceLanguageCode="en",
+        TargetLanguageCode=target_lang
+    )
+    return response["TranslatedText"]
+
+def text_to_speech(text, voice="Aditi", lang="en-IN"):
+    response = polly.synthesize_speech(
+        Text=text,
+        OutputFormat="mp3",
+        VoiceId=voice,
+        LanguageCode=lang
+    )
+    return response["AudioStream"].read()
+
 def get_boto_client(service_name: str):
     if not USE_AWS:
         raise RuntimeError("AWS usage disabled. Set USE_AWS=true and configure AWS credentials to enable.")
