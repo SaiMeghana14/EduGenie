@@ -145,8 +145,8 @@ if page == "Tutor":
 if page == "Lessons":
     st.header("Lessons")
     if st.button("Generate Personalized Learning Path"):
-    path = generate_learning_path("Algebra", level="beginner")
-    st.json(path)
+        path = generate_learning_path("Algebra", level="beginner")
+        st.json(path)
 
     left, right = st.columns([2,1])
     with left:
