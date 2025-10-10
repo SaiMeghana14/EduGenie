@@ -11,5 +11,5 @@ numpy
 matplotlib
 seaborn
 plotly
-boto3
 requests
+reportlab
