@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Dict, Any, List
 from agent import EduGenieAgent
 from aws_utils import USE_AWS, save_progress_dynamodb, load_progress_dynamodb, init_progress_table
+from tutor_agent import tutor_ui
+from teacher_agent import generate_class_summary
+from gamification import get_leaderboard
+from learning_path import generate_learning_path
 
 # Page config
 st.set_page_config(page_title="EduGenie", page_icon="🧞‍♂️", layout="wide")
@@ -44,12 +48,12 @@ if "progress" not in st.session_state:
         st.session_state.progress = {}
 
 # Layout: Landing / Tutor / Lessons / Teacher Dashboard
-tabs = st.tabs(["Landing", "Tutor", "Lessons", "Teacher Dashboard"])
+page = st.sidebar.radio("Navigate", ["Landing", "Tutor", "Lessons", "Teacher Dashboard"])
 
 # -------------------
 # Landing page
 # -------------------
-with tabs[0]:
+if page == "Landing":
     col1, col2 = st.columns([2,1])
     with col1:
         st.markdown('<div class="header">EduGenie — AI tutor that grants your learning wishes</div>', unsafe_allow_html=True)
@@ -73,7 +77,25 @@ with tabs[0]:
 # -------------------
 # Tutor (chat) tab
 # -------------------
-with tabs[1]:
+if page == "Tutor":
+    from aws_utils import translate_text, text_to_speech
+    import streamlit.components.v1 as components
+    
+    lang_map = {"English":"en", "Hindi":"hi", "Telugu":"te"}
+    chosen_lang = st.selectbox("🌍 Choose language", list(lang_map.keys()))
+    
+    if st.button("Translate last answer"):
+        if st.session_state.chat_history:
+            last_answer = st.session_state.chat_history[-1][1]
+            translated = translate_text(last_answer, target_lang=lang_map[chosen_lang])
+            st.success(translated)
+    
+    if st.button("🔊 Speak last answer"):
+        if st.session_state.chat_history:
+            last_answer = st.session_state.chat_history[-1][1]
+            audio_bytes = text_to_speech(last_answer)
+            st.audio(audio_bytes, format="audio/mp3")
+
     st.subheader("Talk to EduGenie")
     # Chat history
     if "chat_history" not in st.session_state:
@@ -120,10 +142,22 @@ with tabs[1]:
 # -------------------
 # Lessons tab & quiz runner
 # -------------------
-with tabs[2]:
+if page == "Lessons":
+    st.header("Lessons")
+    if st.button("Generate Personalized Learning Path"):
+    path = generate_learning_path("Algebra", level="beginner")
+    st.json(path)
+
     left, right = st.columns([2,1])
     with left:
-        st.header("Lessons")
+        from gamification import update_score, get_leaderboard
+        
+        # Show leaderboard in sidebar
+        st.sidebar.subheader("🏆 Leaderboard")
+        leaders = get_leaderboard()
+        for rank, player in enumerate(leaders, start=1):
+            st.sidebar.write(f"{rank}. {player['UserId']} - {player.get('points',0)} pts")
+            
         for domain, topics in LESSONS.items():
             with st.expander(domain.title()):
                 for topic_key, topic in topics.items():
@@ -173,6 +207,7 @@ with tabs[2]:
                     st.session_state.gq_index += 1
                     if st.session_state.gq_index >= len(questions):
                         st.success(f"Quiz done! Score {st.session_state.gq_score}/{len(questions)}")
+                        st.balloons()
                         # save to progress
                         st.session_state.progress.setdefault("quizzes", []).append({
                             "topic": gq.get("topic"),
@@ -220,7 +255,7 @@ with tabs[2]:
 # -------------------
 # Teacher Dashboard
 # -------------------
-with tabs[3]:
+if page == "Teacher Dashboard":
     st.header("Teacher Dashboard")
     st.markdown("Monitor class progress, view quizzes, and export CSV reports.")
     # For demo, progress is stored in session_state. In production, teacher view should aggregate across real users.
@@ -250,9 +285,23 @@ with tabs[3]:
         st.download_button("Download CSV report", csv_bytes, file_name="edu_genie_progress.csv", mime="text/csv")
     else:
         st.info("No student quiz data yet. Run a quiz as a student to generate sample data.")
+        
+    summary = ""
+
+    if st.button("Generate AI Class Summary"):
+        summary = generate_class_summary(data_rows)
+        st.text_area("AI Summary", summary, height=200)
+    
+    from reports import generate_report
+    if st.button("Export PDF Report") and summary:
+        generate_report("class_report.pdf", summary)
+        with open("class_report.pdf", "rb") as f:
+            st.download_button("Download PDF", f, file_name="class_report.pdf")
+
 
 # -------------------
 # Footer
 # -------------------
 st.markdown("---")
+st.markdown("🔒 EduGenie uses AWS IAM for secure data access. No sensitive data is stored unencrypted.")
 st.markdown("Built with ❤️ — EduGenie. For hackathon, set LLM_PROVIDER=openai for local testing or bedrock for AWS.")
