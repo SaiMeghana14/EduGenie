@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 from agent import EduGenieAgent
 from aws_utils import USE_AWS, save_progress_dynamodb, load_progress_dynamodb, init_progress_table
 from tutor_agent import tutor_ui
-from teacher_agent import generate_class_summary
+from teacher_agent import generate_class_summary, export_class_performance_csv
 from gamification import get_leaderboard
 from learning_path import generate_learning_path
 
