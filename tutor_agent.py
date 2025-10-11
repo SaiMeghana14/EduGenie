@@ -2,7 +2,7 @@ import streamlit as st
 import json
 import random
 from aws_utils import translate_text, synthesize_speech, save_progress_dynamodb, load_progress_dynamodb, USE_AWS
-from agent import call_bedrock_agent, fallback_llm_response
+from agent import EduGenieAgent
 
 # ----------------------------------------------------
 # 🎓 Tutor UI Component
