@@ -137,13 +137,16 @@ def _invoke_openai_chat(system_prompt: str, messages: List[Dict[str, str]],
     model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     # Build messages for OpenAI API: include system then conversation messages
     payload_messages = [{"role": "system", "content": system_prompt}] + messages
-    resp = openai.ChatCompletion.create(
+    from openai import OpenAI
+                            
+    client = OpenAI()
+    resp = client.chat.completions.create(
         model=model,
-        messages=payload_messages,
-        max_tokens=max_tokens,
+        messages=messages,
         temperature=temperature
     )
-    text = resp.choices[0].message.content
+
+    answer = resp.choices[0].message.content
     return text
 
 
