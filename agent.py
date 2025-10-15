@@ -1,146 +1,63 @@
 """
-EduGenieAgent - supports OpenAI (local testing) and Amazon Bedrock (production / hackathon).
-- chat_with_bedrock implements a robust invoke_model using boto3 bedrock-runtime client.
-- generate_structured_quiz requests JSON-formatted quizzes from the LLM and parses them.
-- Fallbacks provided if LLM or parsing fails.
+EduGenieAgent – Dual LLM Support (OpenAI / Bedrock)
+---------------------------------------------------
+- chat_with_bedrock: invoke_model via boto3 bedrock-runtime client
+- generate_structured_quiz: JSON-based quiz generation
+- Graceful fallbacks for offline / keyless mode
 """
 
 import os
 import json
-import time
 import logging
 from typing import List, Dict, Any, Optional
 
-# LLM provider selection
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # "openai" or "bedrock"
-DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
+# ---------------------------------
+# Configuration
+# ---------------------------------
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()  # "openai" or "bedrock"
+DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
 DEFAULT_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
-
-# OpenAI client (optional quick local testing)
-openai = None
-if LLM_PROVIDER == "openai":
-    try:
-        import openai as _openai
-        openai = _openai
-        openai.api_key = os.getenv("OPENAI_API_KEY", None)
-    except Exception:
-        openai = None
-
-# Bedrock / boto3
-bedrock_client = None
-if LLM_PROVIDER == "bedrock":
-    try:
-        import boto3
-        from botocore.exceptions import BotoCoreError, ClientError
-        bedrock_client = boto3.client("bedrock-runtime")
-    except Exception:
-        bedrock_client = None
+DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# ---------------------------------
+# OpenAI Setup
+# ---------------------------------
+client = None
+try:
+    from openai import OpenAI
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        client = OpenAI(api_key=api_key)
+    else:
+        logger.warning("⚠️ OPENAI_API_KEY not set – using offline mock mode.")
+except Exception as e:
+    logger.warning(f"⚠️ OpenAI client not available: {e}")
+    client = None
 
-# ------------------------------
-# Helpers: Bedrock invoke wrapper
-# ------------------------------
-def _invoke_bedrock_model(model_id: str, input_text: str, 
-                          content_type: str = "application/json",
-                          accept: str = "application/json",
-                          max_tokens: int = DEFAULT_MAX_TOKENS,
-                          temperature: float = DEFAULT_TEMPERATURE) -> str:
-    """
-    Invoke a Bedrock model via boto3 bedrock-runtime client.
-    Sends a JSON body with a standard "input" field. Handles common response shapes
-    and returns the generated text as a single string. Robust to variations in response.
-    Requires AWS credentials set in the environment/instance profile and proper IAM: bedrock:InvokeModel.
-    See Bedrock docs for model-specific parameter shapes. :contentReference[oaicite:1]{index=1}
-    """
-    if bedrock_client is None:
-        raise RuntimeError("Bedrock client not initialized. Ensure LLM_PROVIDER=bedrock and boto3 configured.")
-
-    # The request body structure differs by model; many accept {"input": "..."} for text prompts.
-    payload = {
-        "input": input_text,
-        "maxTokens": max_tokens,
-        "temperature": temperature
-    }
-    body_bytes = json.dumps(payload).encode("utf-8")
-
+# ---------------------------------
+# Bedrock Setup
+# ---------------------------------
+bedrock_client = None
+if LLM_PROVIDER == "bedrock":
     try:
-        resp = bedrock_client.invoke_model(
-            modelId=model_id,
-            contentType=content_type,
-            accept=accept,
-            body=body_bytes
-        )
+        import boto3
+        bedrock_client = boto3.client("bedrock-runtime")
     except Exception as e:
-        logger.exception("Bedrock invoke_model failed")
-        raise
+        logger.warning(f"⚠️ Bedrock client unavailable: {e}")
+        bedrock_client = None
 
-    # Read response body (stream-like)
-    raw = None
-    try:
-        # For many SDK versions: resp['body'] is a StreamingBody
-        body_stream = resp.get("body")
-        if body_stream is not None:
-            raw = body_stream.read().decode("utf-8")
-        else:
-            # some responses may be in 'blob' or direct fields
-            raw = json.dumps(resp)
-    except Exception:
-        raw = json.dumps(resp)
-
-    # Try to parse known response shapes
-    # Common Bedrock text output shapes:
-    # 1) {"outputs":[{"content":[{"type":"text/plain","text":"..."}]}]}
-    # 2) Amazon titan returns {"output":"..."} or raw text
-    # 3) Anthropic or other vendor wrappers may vary.
-    try:
-        parsed = json.loads(raw)
-        # shape 1
-        if isinstance(parsed, dict):
-            # Check outputs.content.text
-            outputs = parsed.get("outputs")
-            if outputs and isinstance(outputs, list):
-                for o in outputs:
-                    content = o.get("content")
-                    if isinstance(content, list):
-                        for c in content:
-                            if isinstance(c, dict) and c.get("type") in ("text/plain", "text"):
-                                text = c.get("text") or c.get("text")
-                                if text:
-                                    return text
-            # direct text
-            if "output" in parsed and isinstance(parsed["output"], str):
-                return parsed["output"]
-            # sometimes model returns 'results' or 'generated_text'
-            for key in ("generated_text", "result", "text"):
-                if key in parsed and isinstance(parsed[key], str):
-                    return parsed[key]
-    except Exception:
-        # not JSON or unexpected shape -> fall through and return raw
-        pass
-
-    # If above parsing didn't return, attempt naive extraction
-    # If raw looks like JSON but couldn't parse to text, return raw string
-    return raw
-
-
-# ------------------------------
-# OpenAI wrapper (quick local testing)
-# ------------------------------
-import os
-from openai import OpenAI
-
-# Initialize the new OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-DEFAULT_TEMPERATURE = 0.7
-
+# ---------------------------------
+# OpenAI Invocation (modern API)
+# ---------------------------------
 def _invoke_openai_chat(model, messages, temperature=DEFAULT_TEMPERATURE, max_tokens=400):
-    """
-    Modern OpenAI Chat API invocation (compatible with v1.x)
-    """
+    if client is None:
+        # Offline mock fallback
+        last_msg = messages[-1]["content"]
+        return f"[Mock AI Response for: {last_msg[:50]}...]"
+
     try:
         resp = client.chat.completions.create(
             model=model,
@@ -149,113 +66,96 @@ def _invoke_openai_chat(model, messages, temperature=DEFAULT_TEMPERATURE, max_to
             max_tokens=max_tokens
         )
         return resp.choices[0].message.content
-
     except Exception as e:
-        print(f"⚠️ OpenAI error: {e}")
-        return f"[AI unavailable, returning fallback for: {messages[-1]['content'][:40]}...]"
+        logger.error(f"OpenAI call failed: {e}")
+        return "[AI unavailable: fallback triggered]"
 
-# ------------------------------
-# EduGenieAgent class
-# ------------------------------
+# ---------------------------------
+# Bedrock Invocation
+# ---------------------------------
+def _invoke_bedrock_model(model_id, input_text, max_tokens=DEFAULT_MAX_TOKENS, temperature=DEFAULT_TEMPERATURE):
+    if bedrock_client is None:
+        return f"[Bedrock unavailable – fallback for: {input_text[:50]}...]"
+
+    try:
+        body = json.dumps({"input": input_text, "maxTokens": max_tokens, "temperature": temperature}).encode("utf-8")
+        resp = bedrock_client.invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=body
+        )
+        raw = resp.get("body").read().decode("utf-8")
+        parsed = json.loads(raw)
+        return parsed.get("output", raw)
+    except Exception as e:
+        logger.error(f"Bedrock invoke failed: {e}")
+        return "[Bedrock error: fallback text]"
+
+# ---------------------------------
+# EduGenieAgent Class
+# ---------------------------------
 class EduGenieAgent:
     def __init__(self, persona: Optional[str] = None, bedrock_model: Optional[str] = None):
-        self.persona = persona or ("You are EduGenie, a friendly patient AI tutor. "
-                                   "Provide clear, step-by-step explanations, short examples, "
-                                   "and short quizzes when appropriate.")
+        self.persona = persona or (
+            "You are EduGenie, a friendly AI tutor who explains simply and clearly."
+        )
         self.history: List[Dict[str, str]] = []
         self.bedrock_model = bedrock_model or os.getenv("BEDROCK_MODEL_ID", "amazon.titan-text-express-v1")
-        logger.info("EduGenieAgent initialized with provider=%s model=%s", LLM_PROVIDER, self.bedrock_model)
+        logger.info("EduGenieAgent initialized with provider=%s", LLM_PROVIDER)
 
     def ask(self, user_text: str, max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
-        """
-        Generic chat interface. Keeps a small local conversation history (session).
-        """
-        # append user
         self.history.append({"role": "user", "content": user_text})
-        # build messages (last few turns)
-        messages = self.history[-6:]  # keep last 6 for context
+        messages = self.history[-6:]
 
         if LLM_PROVIDER == "openai":
-            resp = _invoke_openai_chat(self.persona, messages, temperature=DEFAULT_TEMPERATURE, max_tokens=max_tokens)
+            resp = _invoke_openai_chat(DEFAULT_MODEL, messages, temperature=DEFAULT_TEMPERATURE, max_tokens=max_tokens)
         else:
-            # For bedrock we convert messages to a single prompt text
             prompt = self._messages_to_prompt(messages)
-            resp = _invoke_bedrock_model(self.bedrock_model, prompt, max_tokens=max_tokens, temperature=DEFAULT_TEMPERATURE)
-        # append assistant answer
+            resp = _invoke_bedrock_model(self.bedrock_model, prompt, max_tokens=max_tokens)
+        
         self.history.append({"role": "assistant", "content": resp})
         return resp
 
     def _messages_to_prompt(self, messages: List[Dict[str, str]]) -> str:
-        """
-        Convert messages list to a single text prompt for Bedrock models.
-        This is a simple format: persona + conversation turn markers.
-        """
         lines = [f"System: {self.persona}", ""]
         for m in messages:
             role = m.get("role", "user")
-            content = m.get("content", "")
             prefix = "User" if role == "user" else "Assistant"
-            lines.append(f"{prefix}: {content}")
+            lines.append(f"{prefix}: {m.get('content', '')}")
         lines.append("\nAssistant:")
         return "\n".join(lines)
 
-    # --------------------------
-    # Structured quiz generation
-    # --------------------------
     def generate_structured_quiz(self, topic: str, difficulty: str = "easy", num_questions: int = 3) -> Dict[str, Any]:
-        """
-        Ask LLM to return a JSON object with quizzes:
-        {
-          "topic": "...",
-          "questions": [
-             { "question": "...", "options": ["a","b","c","d"], "answer_index": 1, "explain": "..." }
-          ]
-        }
-        This method tries to parse the returned JSON. If parsing fails, it provides a fallback simple quiz.
-        """
-        system = ("You are EduGenie, an expert teacher. Return valid JSON only. "
-                  "Format exactly: {\"topic\":\"...\",\"questions\":[{\"question\":\"..\",\"options\":[\"..\",\"..\",\"..\",\"..\"],\"answer_index\":<0-3>,\"explain\":\"...\"}, ...] }")
-        user_prompt = (f"Create {num_questions} multiple-choice questions on the topic '{topic}' at '{difficulty}' difficulty. "
-                       "Each question must have 4 options. Provide the correct option's index with 0-based indexing. "
-                       "Return JSON only with the schema described.")
-        # For bedrock combine system + user into a single prompt string
+        system = (
+            "You are EduGenie, an expert teacher. Return valid JSON only in this schema: "
+            '{"topic":"...","questions":[{"question":"...","options":["a","b","c","d"],"answer_index":0,"explain":"..."}]}'
+        )
+        user_prompt = (
+            f"Create {num_questions} multiple-choice questions on '{topic}' ({difficulty} level). "
+            "Each question must have 4 options and one correct answer. Return JSON only."
+        )
+
         if LLM_PROVIDER == "openai":
             messages = [{"role": "system", "content": system}, {"role": "user", "content": user_prompt}]
-            raw = _invoke_openai_chat(system, messages, max_tokens=800)
+            raw = _invoke_openai_chat(DEFAULT_MODEL, messages, max_tokens=800)
         else:
-            prompt = system + "\n\n" + user_prompt
-            raw = _invoke_bedrock_model(self.bedrock_model, prompt, max_tokens=800)
-        # Try to extract JSON substring (robust)
-        parsed = None
+            raw = _invoke_bedrock_model(self.bedrock_model, system + "\n\n" + user_prompt, max_tokens=800)
+
         try:
-            # Sometimes models add text before/after JSON. Extract first JSON-like block.
-            start = raw.find("{")
-            end = raw.rfind("}") + 1
-            if start != -1 and end != -1 and end > start:
-                json_blob = raw[start:end]
-                parsed = json.loads(json_blob)
+            start, end = raw.find("{"), raw.rfind("}") + 1
+            if start != -1 and end > start:
+                parsed = json.loads(raw[start:end])
+                if "questions" in parsed:
+                    return parsed
         except Exception:
-            parsed = None
+            pass
 
-        # Validate parsed structure
-        if parsed and isinstance(parsed, dict) and "questions" in parsed:
-            # basic sanity checks - ensure options lists and answer_index exist
-            questions = parsed.get("questions", [])
-            valid_questions = []
-            for q in questions:
-                if all(k in q for k in ("question", "options", "answer_index")) and isinstance(q["options"], list) and len(q["options"]) >= 2:
-                    valid_questions.append(q)
-            if len(valid_questions) >= 1:
-                return {"topic": parsed.get("topic", topic), "questions": valid_questions}
-
-        # Fallback: simple rule-based quiz generator (very basic)
-        logger.warning("Structured quiz parsing failed. Using fallback generator. Raw LLM output: %s", raw[:200])
-        fallback = {"topic": topic, "questions": []}
-        for i in range(num_questions):
-            fallback["questions"].append({
-                "question": f"SAMPLE: {topic} question {i+1} (fallback)",
-                "options": ["Option A", "Option B", "Option C", "Option D"],
-                "answer_index": 0,
-                "explain": "Fallback explanation: placeholder."
-            })
-        return fallback
+        logger.warning("⚠️ LLM JSON parse failed – using fallback quiz.")
+        return {
+            "topic": topic,
+            "questions": [
+                {"question": f"SAMPLE: {topic} Q{i+1}", "options": ["A", "B", "C", "D"], "answer_index": 0, "explain": "Sample explanation."}
+                for i in range(num_questions)
+            ]
+        }
