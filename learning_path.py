@@ -1,5 +1,4 @@
 import json
-from tutor_agent import bedrock_generate
 
 def generate_learning_path(topic, level="beginner"):
     prompt = f"""
