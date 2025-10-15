@@ -129,26 +129,30 @@ def _invoke_bedrock_model(model_id: str, input_text: str,
 # ------------------------------
 # OpenAI wrapper (quick local testing)
 # ------------------------------
-def _invoke_openai_chat(system_prompt: str, messages: List[Dict[str, str]],
-                        model: str = None, temperature: float = DEFAULT_TEMPERATURE,
-                        max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
-    if openai is None:
-        raise RuntimeError("OpenAI client not available. Set OPENAI_API_KEY and install openai.")
-    model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    # Build messages for OpenAI API: include system then conversation messages
-    payload_messages = [{"role": "system", "content": system_prompt}] + messages
-    from openai import OpenAI
-                            
-    client = OpenAI()
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature
-    )
+import os
+from openai import OpenAI
 
-    answer = resp.choices[0].message.content
-    return text
+# Initialize the new OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+DEFAULT_TEMPERATURE = 0.7
+
+def _invoke_openai_chat(model, messages, temperature=DEFAULT_TEMPERATURE, max_tokens=400):
+    """
+    Modern OpenAI Chat API invocation (compatible with v1.x)
+    """
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        return resp.choices[0].message.content
+
+    except Exception as e:
+        print(f"⚠️ OpenAI error: {e}")
+        return f"[AI unavailable, returning fallback for: {messages[-1]['content'][:40]}...]"
 
 # ------------------------------
 # EduGenieAgent class
