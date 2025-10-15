@@ -52,23 +52,32 @@ if LLM_PROVIDER == "bedrock":
 # ---------------------------------
 # OpenAI Invocation (modern API)
 # ---------------------------------
-def _invoke_openai_chat(model, messages, temperature=DEFAULT_TEMPERATURE, max_tokens=400):
-    if client is None:
-        # Offline mock fallback
-        last_msg = messages[-1]["content"]
-        return f"[Mock AI Response for: {last_msg[:50]}...]"
+
+def _invoke_openai_chat(system_prompt, messages, model="gpt-4o-mini", temperature=0.7, max_tokens=500):
+    """
+    Handles communication with the OpenAI chat model using the new v1 API.
+    Compatible with openai>=1.0.
+    """
+    client = OpenAI()
 
     try:
-        resp = client.chat.completions.create(
+        response = client.chat.completions.create(
             model=model,
-            messages=messages,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                *messages
+            ],
             temperature=temperature,
             max_tokens=max_tokens
         )
-        return resp.choices[0].message.content
+
+        # ✅ Extract model's response
+        reply = response.choices[0].message.content.strip()
+        return reply
+
     except Exception as e:
-        logger.error(f"OpenAI call failed: {e}")
-        return "[AI unavailable: fallback triggered]"
+        print(f"❌ Error calling OpenAI API: {e}")
+        return "Sorry, I ran into an issue while generating a response."
 
 # ---------------------------------
 # Bedrock Invocation
