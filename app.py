@@ -48,7 +48,11 @@ if page == "Landing":
         st.button("Get Started")
     with col2:
         lottie = load_lottie_file('assets/your_animation.json')
-        if lottie: st_lottie(lottie, height=320)
+        if lottie:
+            st_lottie(lottie, height=320)
+        else:
+            st.image(ASSETS.get("logo_url", ""), width=200)
+
         st.markdown("### Features")
         st.write("Gemini multimodal tutor, offline caching, collaborative peer rooms, WebRTC live sessions.")
 
@@ -58,9 +62,9 @@ elif page == "AI Tutor":
     st.write("Chat with EduGenie. Use text or upload images/diagrams.")
     query = st.text_area("Ask a question:", value="Explain Nyquist sampling theorem in simple terms.")
 
-    @st.cache_data
     def get_cached_response(prompt):
-        return gemini.chat(prompt).get("text", "")
+        resp = gemini.chat(prompt)
+        return resp.get("text") or resp.get("mock") or resp.get("error") or ""
 
     col1, col2 = st.columns([3,1])
     with col1:
@@ -143,6 +147,8 @@ elif page == "Peer Rooms":
     if room:
         payload = {"room": room, "user": name, "iat": int(time.time()), "exp": int(time.time()) + 3600}
         token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+        if isinstance(token, bytes):
+            token = token.decode("utf-8")
     if st.button("Open Peer Room"):
         with open("peer_room.html","r",encoding="utf-8") as f:
             html = f.read()
@@ -159,8 +165,10 @@ elif page == "Peer Rooms":
         components.html(html, height=600, scrolling=True)
 
 # ---------------------- WebRTC Live Room ----------------------
-st.header("Live Video Room 🎥")
-webrtc_streamer(key="edu_webrtc")
+elif page == "Live Room":
+    st.header("Live Video Room 🎥")
+    from streamlit_webrtc import webrtc_streamer
+    webrtc_streamer(key="edu_webrtc")
 
 # ---------------------- Progress & Leaderboard ----------------------
 elif page == "Progress & Leaderboard":
