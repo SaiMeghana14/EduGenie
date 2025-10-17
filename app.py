@@ -4,7 +4,7 @@ from utils import GeminiClient
 from db import DB
 from streamlit_lottie import st_lottie
 import streamlit.components.v1 as components
-#from streamlit_webrtc import webrtc_streamer
+from streamlit_webrtc import webrtc_streamer
 
 # ---------------------- Config ----------------------
 st.set_page_config(page_title='EduGenie (Gemini)', layout='wide', initial_sidebar_state='expanded')
