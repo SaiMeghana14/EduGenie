@@ -1,9 +1,9 @@
 {
     "logo": "assets/logo.png",
     "hero": "assets/hero.gif",
-    "upload": "assets/upload.png",
-    "badge_easy": "assets/badge_easy.png",
-    "badge_medium": "assets/badge_medium.png",
-    "badge_hard": "assets/badge_hard.png",
+    "upload": "assets/upload.gif",
+    "badge_easy": "assets/badge_easy.gif",
+    "badge_medium": "assets/badge_medium.gif",
+    "badge_hard": "assets/badge_hard.gif",
     "footer_text": "© 2025 EduGenie — Built with ❤️ using Gemini + Streamlit"
 }
