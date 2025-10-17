@@ -1,307 +1,175 @@
 import streamlit as st
-import json
-import os
-from pathlib import Path
-from typing import Dict, Any, List
-from agent import EduGenieAgent
-from aws_utils import USE_AWS, save_progress_dynamodb, load_progress_dynamodb, init_progress_table
-from tutor_agent import tutor_ui
-from teacher_agent import generate_class_summary, export_class_performance_csv
-from gamification import get_leaderboard
-from learning_path import generate_learning_path
+from utils import GeminiClient, tts_local
+from db import DB
+import os, time, json
+from streamlit_lottie import st_lottie
+import requests
+import streamlit.components.v1 as components
 
-# Page config
-st.set_page_config(page_title="EduGenie", page_icon="🧞‍♂️", layout="wide")
-BASE_DIR = Path(__file__).parent
+# Setup
+st.set_page_config(page_title='EduGenie (Gemini)', layout='wide', initial_sidebar_state='expanded')
+st.markdown("<style> .stApp { background: #F8FAFC; } </style>", unsafe_allow_html=True)
 
-# Load lessons
-DATA_FILE = BASE_DIR / "data" / "lessons.json"
-with open(DATA_FILE, "r", encoding="utf-8") as f:
-    LESSONS = json.load(f)
+# Load assets config
+ASSETS = {}
+try:
+    with open('assets/config.json','r') as f:
+        ASSETS = json.load(f)
+except Exception:
+    ASSETS = {}
 
-# CSS - clean, minimal, polished
-def local_css(file_name):
-    with open(file_name) as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+# Lottie helper
+def load_lottie_url(url):
+    try:
+        r = requests.get(url)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        return None
+    return None
 
-# Load custom CSS
-local_css("assets/custom.css")
+# instantiate Gemini client
+gemini = GeminiClient(api_key=os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY'))
+db = DB('edugenie.db')
 
-# Initialize agent in session
-if "agent" not in st.session_state:
-    st.session_state.agent = EduGenieAgent()
+# Sidebar
+st.sidebar.image(ASSETS.get('logo_url',''), width=120)
+st.sidebar.title("EduGenie")
+name = st.sidebar.text_input("Your name", value="Guest")
+page = st.sidebar.radio("Go to", ["Landing", "AI Tutor", "Upload & Summarize", "Quizzes", "Peer Rooms", "Progress & Leaderboard", "Settings"])
 
-if "user_id" not in st.session_state:
-    st.session_state.user_id = st.sidebar.text_input("Username (for progress)", value="guest_user") or "guest_user"
-
-# Load persistent progress if AWS enabled
-if "progress" not in st.session_state:
-    if USE_AWS:
-        table_name = os.getenv("PROGRESS_TABLE", "EduGenieProgress")
-        try:
-            init_progress_table(table_name)
-            p = load_progress_dynamodb(table_name, st.session_state.user_id)
-            st.session_state.progress = p or {}
-        except Exception:
-            st.session_state.progress = {}
-    else:
-        st.session_state.progress = {}
-
-# Layout: Landing / Tutor / Lessons / Teacher Dashboard
-page = st.sidebar.radio("Navigate", ["Landing", "Tutor", "Lessons", "Teacher Dashboard"])
-
-# -------------------
-# Landing page
-# -------------------
+# Landing
 if page == "Landing":
-    col1, col2 = st.columns([2,1])
+    col1,col2 = st.columns([2,3])
     with col1:
-        st.markdown('<div class="header">EduGenie — AI tutor that grants your learning wishes</div>', unsafe_allow_html=True)
-        st.markdown("**Personalized, adaptive tutoring with instant quizzes and progress tracking.**")
-        st.markdown("""
-        - Chat with EduGenie to explain concepts in multiple styles (step-by-step, visual hints, ELI5).
-        - Auto-generate quizzes that adapt to the student's level.
-        - Teacher dashboard to monitor class progress and export CSVs.
-        """)
-        st.markdown("### Quick demo")
-        if st.button("Try a demo question"):
-            demo_ans = st.session_state.agent.ask("Explain Newton's second law in a simple way with an example.")
-            st.info(demo_ans)
+        st.title("EduGenie — Gemini-Powered Learning")
+        st.write("Personalized, multi-modal, gamified learning demo — no AWS required.")
+        st.markdown("- Gemini AI Tutor (text + image + voice)")
+        st.markdown("- Upload notes/PDFs -> Summaries & Flashcards")
+        st.markdown("- Quizzes, XP & Leaderboard")
+        st.button("Get Started")
     with col2:
-        logo_path = BASE_DIR / "assets" / "logo.png"
-        if logo_path.exists():
-            st.image(str(logo_path), width=220)
+        lottie = load_lottie_url(ASSETS.get('lottie_hero'))
+        if lottie: st_lottie(lottie, height=320)
+        st.markdown("### Features")
+        st.write("Gemini multimodal tutor, offline caching, collaborative peer rooms.")
+
+# AI Tutor
+elif page == "AI Tutor":
+    st.header("AI Tutor")
+    st.write("Chat with EduGenie. Use text or upload images (diagrams, equations).")
+    query = st.text_area("Ask a question:", value="Explain Nyquist sampling theorem in simple terms.")
+    col1,col2 = st.columns([3,1])
+    with col1:
+        if st.button("Ask Gemini"):
+            with st.spinner("Thinking..."):
+                resp = gemini.chat(query)
+            text = resp.get('text') or resp.get('mock') or resp.get('error') or ''
+            st.markdown("**EduGenie:**")
+            st.write(text)
+            # cache for offline
+            db.cache_set(f"chat:{query[:64]}", text, int(time.time()))
+            if 'audio' in resp:
+                # if the SDK returned audio path or bytes, play it; else fallback to local TTS
+                try:
+                    st.audio(resp['audio'])
+                except:
+                    fname = tts_local(text)
+                    st.audio(fname)
+    with col2:
+        st.subheader("Upload diagram / image")
+        img = st.file_uploader("Image (png/jpg)", type=['png','jpg','jpeg'])
+        if img is not None and st.button("Analyze image"):
+            with st.spinner("Analyzing..."):
+                # For simplicity: treat as question "Explain this image"
+                prompt = "Analyze this image and explain what it likely shows, step-by-step."
+                # attempt to send to Gemini (vision-capable) if available
+                result = gemini.chat(prompt + " (image attached).")
+                st.write(result.get('text', 'No response.'))
+
+# Upload & Summarize
+elif page == "Upload & Summarize":
+    st.header("Upload notes / PDF")
+    uploaded = st.file_uploader("Upload PDF or TXT", type=['pdf','txt'])
+    if uploaded:
+        raw = ""
+        if uploaded.type == "application/pdf":
+            from PyPDF2 import PdfReader
+            reader = PdfReader(uploaded)
+            for p in reader.pages:
+                raw += p.extract_text() + "\\n"
         else:
-            st.markdown("🧞‍♂️ **EduGenie**")
+            raw = uploaded.getvalue().decode('utf-8')
+        st.write(raw[:800])
+        if st.button("Summarize & Generate Flashcards"):
+            with st.spinner("Generating..."):
+                summ = gemini.summarize(raw)
+                flashcards = gemini.generate_quiz(raw[:120], difficulty='Medium', n_questions=6)
+                st.subheader("Summary")
+                st.write(summ)
+                st.subheader("Flashcards")
+                for i,fc in enumerate(flashcards if isinstance(flashcards, list) else []):
+                    q = fc.get('q') if isinstance(fc, dict) else fc[0]
+                    a = fc.get('a') if isinstance(fc, dict) else fc[1]
+                    st.markdown(f"**Q{i+1}.** {q}")
+                    st.write(f"**A.** {a}")
 
-# -------------------
-# Tutor (chat) tab
-# -------------------
-if page == "Tutor":
-    from aws_utils import translate_text, text_to_speech
-    import streamlit.components.v1 as components
-    
-    lang_map = {"English":"en", "Hindi":"hi", "Telugu":"te"}
-    chosen_lang = st.selectbox("🌍 Choose language", list(lang_map.keys()))
-    
-    if st.button("Translate last answer"):
-        if st.session_state.chat_history:
-            last_answer = st.session_state.chat_history[-1][1]
-            translated = translate_text(last_answer, target_lang=lang_map[chosen_lang])
-            st.success(translated)
-    
-    if st.button("🔊 Speak last answer"):
-        if st.session_state.chat_history:
-            last_answer = st.session_state.chat_history[-1][1]
-            audio_bytes = text_to_speech(last_answer)
-            st.audio(audio_bytes, format="audio/mp3")
+# Quizzes
+elif page == "Quizzes":
+    st.header("Generate Quiz")
+    topic = st.text_input("Topic:", value="Fourier Transform")
+    diff = st.selectbox("Difficulty", ["Easy","Medium","Hard"])
+    n = st.slider("Number of questions", 1, 10, 5)
+    if st.button("Generate Quiz"):
+        with st.spinner("Generating..."):
+            quiz = gemini.generate_quiz(topic, difficulty=diff, n_questions=n)
+            st.session_state['quiz'] = quiz
+    if st.session_state.get('quiz'):
+        quiz = st.session_state['quiz']
+        score = 0
+        for idx,q in enumerate(quiz):
+            st.markdown(f"**Q{idx+1}.** {q.get('q') if isinstance(q, dict) else q['q']}")
+            ans = st.text_input(f"Answer Q{idx+1}", key=f"q{idx}")
+            if st.button(f"Submit Q{idx+1}", key=f"sub{idx}"):
+                # Evaluate answer using Gemini (simple)
+                feedback = gemini.chat(f'Grade this answer: Q: {q.get("q")} A_user: {ans} Provide {"correct" if ans.strip().lower()==(q.get("answer","").lower()) else "incorrect"} and brief feedback.')
+                st.write(feedback.get('text', 'Feedback not available'))
+                if q.get('answer') and ans.strip().lower() == q.get('answer','').lower():
+                    score += 1
+        if st.button("Finish Quiz"):
+            xp = score * (1 if diff=='Easy' else 2 if diff=='Medium' else 3)
+            db.add_xp(name, xp)
+            st.success(f"You scored {score}/{len(quiz)} and earned {xp} XP")
 
-    st.subheader("Talk to EduGenie")
-    # Chat history
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+# Peer Rooms
+elif page == "Peer Rooms":
+    st.header("Peer Rooms — collaborative notes & whiteboard")
+    st.write("This embeds a collaborative HTML snippet that uses Firebase Realtime DB for signaling.")
+    room = st.text_input("Room name:", value="demo-room")
+    if st.button("Open Peer Room"):
+        # embed the HTML and pass room as query param
+        with open("peer_room.html", "r", encoding='utf-8') as f:
+            html = f.read()
+        # simple replace of placeholder ROOM if needed
+        components.html(html + f"<script>/* room param already read by JS */</script>", height=520, scrolling=True)
 
-    chat_col, side_col = st.columns([3,1])
-    with chat_col:
-        for turn in st.session_state.chat_history:
-            role, text = turn
-            if role == "user":
-                st.markdown(f'<div class="user-bubble"><b>You:</b> {text}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="agent-bubble"><b>EduGenie:</b> {text}</div>', unsafe_allow_html=True)
+# Progress & Leaderboard
+elif page == "Progress & Leaderboard":
+    st.header("Progress")
+    xp = db.get_xp(name)
+    st.metric("XP", xp)
+    st.progress(min(xp / 200, 1.0))
+    st.subheader("Leaderboard")
+    lb = db.get_leaderboard(limit=10)
+    st.table(lb)
 
-        user_input = st.text_input("Ask EduGenie anything...", key="input_main")
-        if st.button("Send", key="send_main"):
-            if user_input.strip():
-                st.session_state.chat_history.append(("user", user_input))
-                answer = st.session_state.agent.ask(user_input)
-                st.session_state.chat_history.append(("agent", answer))
-                st.experimental_rerun()
-
-    with side_col:
-        st.markdown("**Quick prompts**")
-        if st.button("Explain like I'm 5"):
-            text = "Explain like I'm 5: " + (st.session_state.get("input_main") or "photosynthesis")
-            st.session_state.chat_history.append(("user", text))
-            ans = st.session_state.agent.ask(text)
-            st.session_state.chat_history.append(("agent", ans))
-            st.experimental_rerun()
-        if st.button("Generate 3-question quiz (topic)"):
-            topic = st.text_input("Topic for quiz", value="Linear equations")
-            if topic:
-                quiz = st.session_state.agent.generate_structured_quiz(topic, difficulty="easy", num_questions=3)
-                st.session_state.current_generated_quiz = quiz
-                st.success("Quiz generated, switch to Lessons -> Generated Quiz to take it.")
-        st.markdown("---")
-        st.markdown("**Session controls**")
-        if st.button("Reset chat"):
-            st.session_state.chat_history = []
-            st.session_state.agent = EduGenieAgent()
-            st.success("Session reset.")
-
-# -------------------
-# Lessons tab & quiz runner
-# -------------------
-if page == "Lessons":
-    st.header("Lessons")
-    if st.button("Generate Personalized Learning Path"):
-        path = generate_learning_path("Algebra", level="beginner")
-        st.json(path)
-
-    left, right = st.columns([2,1])
-    with left:
-        from gamification import update_score, get_leaderboard
-        
-        # Show leaderboard in sidebar
-        st.sidebar.subheader("🏆 Leaderboard")
-        leaders = get_leaderboard()
-        for rank, player in enumerate(leaders, start=1):
-            st.sidebar.write(f"{rank}. {player['UserId']} - {player.get('points',0)} pts")
-            
-        for domain, topics in LESSONS.items():
-            with st.expander(domain.title()):
-                for topic_key, topic in topics.items():
-                    st.markdown(f"**{topic['title']}** — {topic.get('level','')}")
-                    st.write(topic['content'])
-                    cols = st.columns([1,1,1])
-                    if cols[0].button("Ask EduGenie", key=f"ask_{domain}_{topic_key}"):
-                        q = f"Explain the topic: {topic['title']} in a simple way with 2 practice problems."
-                        res = st.session_state.agent.ask(q)
-                        st.session_state.chat_history.append(("user", q))
-                        st.session_state.chat_history.append(("agent", res))
-                        st.experimental_rerun()
-                    if cols[1].button("Start Quiz", key=f"startquiz_{domain}_{topic_key}"):
-                        st.session_state.current_quiz = topic.get("quizzes", [])
-                        st.session_state.current_quiz_meta = {"domain": domain, "topic": topic_key}
-                        st.session_state.quiz_index = 0
-                        st.session_state.quiz_score = 0
-                        st.experimental_rerun()
-                    if cols[2].button("Generate AI Quiz", key=f"aiquiz_{domain}_{topic_key}"):
-                        quiz = st.session_state.agent.generate_structured_quiz(topic['title'], difficulty="easy", num_questions=3)
-                        st.session_state.current_generated_quiz = quiz
-                        st.success("AI quiz generated. Scroll to the right panel to take it.")
-
-    with right:
-        st.header("Quizzes & Progress")
-        # If generated quiz active
-        if st.session_state.get("current_generated_quiz"):
-            gq = st.session_state.current_generated_quiz
-            st.subheader(f"Generated Quiz: {gq.get('topic')}")
-            if "gq_index" not in st.session_state:
-                st.session_state.gq_index = 0
-                st.session_state.gq_score = 0
-            idx = st.session_state.gq_index
-            questions = gq.get("questions", [])
-            if idx < len(questions):
-                q = questions[idx]
-                st.write(q["question"])
-                choice = st.radio("Options", q["options"], key=f"gq_choice_{idx}")
-                if st.button("Submit answer", key=f"gq_submit_{idx}"):
-                    selected_index = q["options"].index(choice) if choice in q["options"] else None
-                    if selected_index == q.get("answer_index"):
-                        st.success("Correct!")
-                        st.session_state.gq_score += 1
-                    else:
-                        st.error(f"Wrong. Correct: {q['options'][q['answer_index']]}")
-                        st.write("Explain:", q.get("explain", ""))
-                    st.session_state.gq_index += 1
-                    if st.session_state.gq_index >= len(questions):
-                        st.success(f"Quiz done! Score {st.session_state.gq_score}/{len(questions)}")
-                        st.balloons()
-                        # save to progress
-                        st.session_state.progress.setdefault("quizzes", []).append({
-                            "topic": gq.get("topic"),
-                            "score": st.session_state.gq_score,
-                            "total": len(questions)
-                        })
-                        # reset generated quiz
-                        st.session_state.current_generated_quiz = None
-                        st.session_state.gq_index = 0
-                        st.session_state.gq_score = 0
-            else:
-                st.write("No questions in generated quiz.")
-        elif st.session_state.get("current_quiz"):
-            quiz = st.session_state.current_quiz
-            idx = st.session_state.quiz_index
-            qobj = quiz[idx]
-            st.markdown(f"**Question {idx+1}/{len(quiz)}**")
-            st.write(qobj["question"])
-            choice = st.radio("Choose an option", qobj["options"], key=f"quiz_choice_{idx}")
-            if st.button("Submit", key=f"quiz_submit_{idx}"):
-                if choice == qobj["answer"]:
-                    st.success("Correct!")
-                    st.session_state.quiz_score += 1
-                else:
-                    st.error(f"Wrong. Correct: {qobj['answer']}")
-                    st.write("Explain:", qobj.get("explain"))
-                st.session_state.quiz_index += 1
-                if st.session_state.quiz_index >= len(quiz):
-                    st.success(f"Quiz finished: {st.session_state.quiz_score}/{len(quiz)}")
-                    st.session_state.progress.setdefault("quizzes", []).append({
-                        "topic": st.session_state.current_quiz_meta,
-                        "score": st.session_state.quiz_score,
-                        "total": len(quiz)
-                    })
-                    st.session_state.current_quiz = None
-                    st.session_state.quiz_index = 0
-                    st.session_state.quiz_score = 0
-        else:
-            st.write("No active quizzes. Generate or start a quiz from the lessons.")
-
-        st.markdown("---")
-        st.subheader("Progress snapshot")
-        st.write(st.session_state.progress)
-
-# -------------------
-# Teacher Dashboard
-# -------------------
-if page == "Teacher Dashboard":
-    st.header("Teacher Dashboard")
-    st.markdown("Monitor class progress, view quizzes, and export CSV reports.")
-    # For demo, progress is stored in session_state. In production, teacher view should aggregate across real users.
-    # We will create a simple table view and CSV export.
-    data_rows = []
-    quizzes = st.session_state.progress.get("quizzes", [])
-    for idx, q in enumerate(quizzes):
-        # normalize record for CSV
-        topic = q.get("topic")
-        if isinstance(topic, dict):
-            topic_str = json.dumps(topic)
-        else:
-            topic_str = str(topic)
-        data_rows.append({
-            "id": idx + 1,
-            "user": st.session_state.user_id,
-            "topic": topic_str,
-            "score": q.get("score"),
-            "total": q.get("total")
-        })
-    if data_rows:
-        st.table(data_rows)
-        # CSV export
-        import pandas as pd
-        df = pd.DataFrame(data_rows)
-        csv_bytes = df.to_csv(index=False).encode("utf-8")
-        st.download_button("Download CSV report", csv_bytes, file_name="edu_genie_progress.csv", mime="text/csv")
-    else:
-        st.info("No student quiz data yet. Run a quiz as a student to generate sample data.")
-        
-    summary = ""
-
-    if st.button("Generate AI Class Summary"):
-        summary = generate_class_summary(data_rows)
-        st.text_area("AI Summary", summary, height=200)
-    
-    from reports import generate_report
-    if st.button("Export PDF Report") and summary:
-        generate_report("class_report.pdf", summary)
-        with open("class_report.pdf", "rb") as f:
-            st.download_button("Download PDF", f, file_name="class_report.pdf")
-
-
-# -------------------
-# Footer
-# -------------------
-st.markdown("---")
-st.markdown("🔒 EduGenie uses AWS IAM for secure data access. No sensitive data is stored unencrypted.")
-st.markdown("Built with ❤️ — EduGenie. For hackathon, set LLM_PROVIDER=openai for local testing or bedrock for AWS.")
+# Settings
+elif page == "Settings":
+    st.header("Settings / Debug")
+    st.write("Gemini available:", gemini.available)
+    st.write("Model:", gemini.model)
+    if st.button("Reset DB (demo)"):
+        db.reset_db()
+        st.success("Reset done.")
+    st.markdown("**Assets config**")
+    st.write(ASSETS)
