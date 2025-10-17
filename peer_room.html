@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>EduGenie Peer Room (Collaborative)</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin:0; padding:10px; }
+      #container { display:flex; gap:12px; }
+      #textroom { flex:1; }
+      #whiteboard { flex:1; background:#fff; border:1px solid #eee; }
+      textarea { width:100%; height:300px; }
+      #canvas { width:100%; height:300px; background:#fff; border:1px solid #ddd; }
+    </style>
+  </head>
+  <body>
+    <h3>EduGenie Peer Room (Collaborative)</h3>
+    <div id="container">
+      <div id="textroom">
+        <label>Shared Notes</label>
+        <textarea id="sharedNotes"></textarea>
+      </div>
+      <div id="whiteboard">
+        <label>Whiteboard (draw with mouse)</label>
+        <canvas id="canvas"></canvas>
+      </div>
+    </div>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <script>
+      // TODO: REPLACE with your Firebase project's config
+      const firebaseConfig = {
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_PROJECT.firebaseapp.com",
+        databaseURL: "https://YOUR_PROJECT.firebaseio.com",
+        projectId: "YOUR_PROJECT",
+        storageBucket: "YOUR_PROJECT.appspot.com",
+        messagingSenderId: "SENDER_ID",
+        appId: "APP_ID"
+      };
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.database();
+      const roomId = (new URLSearchParams(window.location.search)).get('room') || 'default';
+      const notesRef = db.ref('rooms/' + roomId + '/notes');
+      const canvasRef = db.ref('rooms/' + roomId + '/canvas');
+
+      const textarea = document.getElementById('sharedNotes');
+      textarea.addEventListener('input', () => {
+        notesRef.set({text: textarea.value, ts: Date.now()});
+      });
+      notesRef.on('value', (snap) => {
+        const v = snap.val();
+        if (v && v.text !== textarea.value) {
+          textarea.value = v.text;
+        }
+      });
+
+      // whiteboard simple: store strokes as PNG dataURL (inefficient but simple)
+      const canvas = document.getElementById('canvas');
+      canvas.width = canvas.clientWidth;
+      canvas.height = 300;
+      const ctx = canvas.getContext('2d');
+      let drawing = false;
+      canvas.addEventListener('mousedown', (e) => { drawing = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); });
+      canvas.addEventListener('mousemove', (e) => { if(drawing){ ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); }});
+      canvas.addEventListener('mouseup', () => { drawing=false; canvasRef.set({image: canvas.toDataURL(), ts: Date.now()}); });
+
+      canvasRef.on('value', (snap) => {
+        const v = snap.val();
+        if(v && v.image){
+          const img = new Image();
+          img.onload = () => { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,0,0); };
+          img.src = v.image;
+        }
+      });
+    </script>
+  </body>
+</html>
