@@ -10,3 +10,8 @@ python-dotenv
 firebase-admin
 streamlit-webrtc
 pillow
+json
+os
+time
+jwt
+requests
