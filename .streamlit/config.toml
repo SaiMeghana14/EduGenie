@@ -1,6 +1,5 @@
 [theme]
-primaryColor = "#4A90E2"         # EduGenie blue
-backgroundColor = "#F9FAFB"      # Light gray background
+primaryColor = "#4F46E5"
+backgroundColor = "#F8FAFC"
 secondaryBackgroundColor = "#FFFFFF"
-textColor = "#1F2937"            # Dark gray text
 font = "sans serif"
