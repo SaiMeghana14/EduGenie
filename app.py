@@ -8,6 +8,17 @@ from streamlit_webrtc import webrtc_streamer
 # ---------------------- Config ----------------------
 st.set_page_config(page_title='EduGenie (Gemini)', layout='wide', initial_sidebar_state='expanded')
 st.markdown("<style> .stApp { background: #F8FAFC; } </style>", unsafe_allow_html=True)
+st.markdown("""
+<style>
+a {
+    color: #2563EB;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # Load assets
 ASSETS = {}
@@ -40,7 +51,8 @@ page = st.sidebar.radio(
         "Settings"
     ]
 )
-
+st.sidebar.markdown("---")
+st.sidebar.info("Made with ❤️ for learners by EduGenie Team")
 # ---------------------- Landing Page ----------------------
 if page == "Landing":
     col1, col2 = st.columns([2,3])
@@ -194,3 +206,15 @@ elif page == "Settings":
         st.success("✅ Database reset complete.")
     st.markdown("### Assets Configuration")
     st.write(ASSETS)
+
+# ---------------------- Footer ----------------------
+st.markdown(
+    f"""
+    <hr style="margin-top: 50px; border: 1px solid #e5e7eb;">
+    <div style="text-align: center; color: #6b7280; font-size: 14px; padding: 10px;">
+        {ASSETS.get('footer_text', '© 2025 EduGenie — Built with ❤️ using Gemini + Streamlit')}
+        <br>
+    
+    """,
+    unsafe_allow_html=True
+)
