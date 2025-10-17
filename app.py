@@ -1,103 +1,98 @@
 import streamlit as st
+import json, os, time, jwt, requests
 from utils import GeminiClient, tts_local
 from db import DB
-import os, time, json
 from streamlit_lottie import st_lottie
-import requests
 import streamlit.components.v1 as components
+from streamlit_webrtc import webrtc_streamer
 
-# Setup
+# ---------------------- Config ----------------------
 st.set_page_config(page_title='EduGenie (Gemini)', layout='wide', initial_sidebar_state='expanded')
 st.markdown("<style> .stApp { background: #F8FAFC; } </style>", unsafe_allow_html=True)
 
-# Load assets config
+# Load assets
 ASSETS = {}
 try:
-    with open('assets/config.json','r') as f:
+    with open('assets/config.json', 'r') as f:
         ASSETS = json.load(f)
 except Exception:
     ASSETS = {}
 
-# Lottie helper
-def load_lottie_url(url):
+def load_lottie_file(path):
     try:
-        r = requests.get(url)
-        if r.status_code == 200:
-            return r.json()
-    except Exception:
+        with open(path, "r") as f:
+            return json.load(f)
+    except:
         return None
-    return None
 
-# instantiate Gemini client
+# ---------------------- Clients ----------------------
 gemini = GeminiClient(api_key=os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY'))
 db = DB('edugenie.db')
+JWT_SECRET = st.secrets["JWT_SECRET"]
 
-# Sidebar
+# ---------------------- Sidebar ----------------------
 st.sidebar.image(ASSETS.get('logo_url',''), width=120)
 st.sidebar.title("EduGenie")
-name = st.sidebar.text_input("Your name", value="Guest")
-page = st.sidebar.radio("Go to", ["Landing", "AI Tutor", "Upload & Summarize", "Quizzes", "Peer Rooms", "Progress & Leaderboard", "Settings"])
+name = st.sidebar.text_input("Your Name", value="Guest")
+page = st.sidebar.radio("Navigate to", ["Landing", "AI Tutor", "Upload & Summarize", "Quizzes", "Peer Rooms", "Progress & Leaderboard", "Settings"])
 
-# Landing
+# ---------------------- Landing Page ----------------------
 if page == "Landing":
-    col1,col2 = st.columns([2,3])
+    col1, col2 = st.columns([2,3])
     with col1:
-        st.title("EduGenie — Gemini-Powered Learning")
-        st.write("Personalized, multi-modal, gamified learning demo — no AWS required.")
-        st.markdown("- Gemini AI Tutor (text + image + voice)")
-        st.markdown("- Upload notes/PDFs -> Summaries & Flashcards")
+        st.title("EduGenie — Gemini-Powered Learning 🚀")
+        st.write("Personalized, multimodal, gamified learning demo — no AWS required.")
+        st.markdown("- Gemini AI Tutor (text + voice)")
+        st.markdown("- Upload notes/PDFs → Summaries & Flashcards")
         st.markdown("- Quizzes, XP & Leaderboard")
         st.button("Get Started")
     with col2:
-        lottie = load_lottie_url(ASSETS.get('lottie_hero'))
+        lottie = load_lottie_file('assets/your_animation.json')
         if lottie: st_lottie(lottie, height=320)
         st.markdown("### Features")
-        st.write("Gemini multimodal tutor, offline caching, collaborative peer rooms.")
+        st.write("Gemini multimodal tutor, offline caching, collaborative peer rooms, WebRTC live sessions.")
 
-# AI Tutor
+# ---------------------- AI Tutor ----------------------
 elif page == "AI Tutor":
     st.header("AI Tutor")
-    st.write("Chat with EduGenie. Use text or upload images (diagrams, equations).")
+    st.write("Chat with EduGenie. Use text or upload images/diagrams.")
     query = st.text_area("Ask a question:", value="Explain Nyquist sampling theorem in simple terms.")
-    col1,col2 = st.columns([3,1])
+
+    @st.cache_data
+    def get_cached_response(prompt):
+        return gemini.chat(prompt).get("text", "")
+
+    col1, col2 = st.columns([3,1])
     with col1:
         if st.button("Ask Gemini"):
             with st.spinner("Thinking..."):
-                resp = gemini.chat(query)
-            text = resp.get('text') or resp.get('mock') or resp.get('error') or ''
-            st.markdown("**EduGenie:**")
-            st.write(text)
-            # cache for offline
-            db.cache_set(f"chat:{query[:64]}", text, int(time.time()))
-            if 'audio' in resp:
-                # if the SDK returned audio path or bytes, play it; else fallback to local TTS
-                try:
-                    st.audio(resp['audio'])
-                except:
-                    fname = tts_local(text)
-                    st.audio(fname)
+                text = get_cached_response(query)
+                st.markdown("**EduGenie:**")
+                st.write(text)
+                # TTS
+                fname = tts_local(text)
+                st.audio(fname)
+                # Cache in local DB
+                db.cache_set(f"chat:{query[:64]}", text, int(time.time()))
     with col2:
         st.subheader("Upload diagram / image")
-        img = st.file_uploader("Image (png/jpg)", type=['png','jpg','jpeg'])
-        if img is not None and st.button("Analyze image"):
+        img = st.file_uploader("Image (png/jpg/jpeg)", type=['png','jpg','jpeg'])
+        if img is not None and st.button("Analyze Image"):
             with st.spinner("Analyzing..."):
-                # For simplicity: treat as question "Explain this image"
                 prompt = "Analyze this image and explain what it likely shows, step-by-step."
-                # attempt to send to Gemini (vision-capable) if available
                 result = gemini.chat(prompt + " (image attached).")
                 st.write(result.get('text', 'No response.'))
 
-# Upload & Summarize
+# ---------------------- Upload & Summarize ----------------------
 elif page == "Upload & Summarize":
-    st.header("Upload notes / PDF")
+    st.header("Upload Notes / PDF")
     uploaded = st.file_uploader("Upload PDF or TXT", type=['pdf','txt'])
     if uploaded:
         raw = ""
         if uploaded.type == "application/pdf":
             from PyPDF2 import PdfReader
             reader = PdfReader(uploaded)
-            for p in reader.pages:
-                raw += p.extract_text() + "\\n"
+            for p in reader.pages: raw += p.extract_text() + "\n"
         else:
             raw = uploaded.getvalue().decode('utf-8')
         st.write(raw[:800])
@@ -114,12 +109,12 @@ elif page == "Upload & Summarize":
                     st.markdown(f"**Q{i+1}.** {q}")
                     st.write(f"**A.** {a}")
 
-# Quizzes
+# ---------------------- Quizzes ----------------------
 elif page == "Quizzes":
     st.header("Generate Quiz")
     topic = st.text_input("Topic:", value="Fourier Transform")
     diff = st.selectbox("Difficulty", ["Easy","Medium","Hard"])
-    n = st.slider("Number of questions", 1, 10, 5)
+    n = st.slider("Number of Questions", 1, 10, 5)
     if st.button("Generate Quiz"):
         with st.spinner("Generating..."):
             quiz = gemini.generate_quiz(topic, difficulty=diff, n_questions=n)
@@ -131,45 +126,59 @@ elif page == "Quizzes":
             st.markdown(f"**Q{idx+1}.** {q.get('q') if isinstance(q, dict) else q['q']}")
             ans = st.text_input(f"Answer Q{idx+1}", key=f"q{idx}")
             if st.button(f"Submit Q{idx+1}", key=f"sub{idx}"):
-                # Evaluate answer using Gemini (simple)
-                feedback = gemini.chat(f'Grade this answer: Q: {q.get("q")} A_user: {ans} Provide {"correct" if ans.strip().lower()==(q.get("answer","").lower()) else "incorrect"} and brief feedback.')
-                st.write(feedback.get('text', 'Feedback not available'))
+                feedback = gemini.chat(f'Grade this answer: Q: {q.get("q")} A_user: {ans}. Respond correct/incorrect and give feedback.')
+                st.write(feedback.get('text','Feedback not available'))
                 if q.get('answer') and ans.strip().lower() == q.get('answer','').lower():
                     score += 1
         if st.button("Finish Quiz"):
             xp = score * (1 if diff=='Easy' else 2 if diff=='Medium' else 3)
             db.add_xp(name, xp)
-            st.success(f"You scored {score}/{len(quiz)} and earned {xp} XP")
+            st.success(f"Score: {score}/{len(quiz)}, XP earned: {xp}")
 
-# Peer Rooms
+# ---------------------- Peer Rooms ----------------------
 elif page == "Peer Rooms":
     st.header("Peer Rooms — collaborative notes & whiteboard")
-    st.write("This embeds a collaborative HTML snippet that uses Firebase Realtime DB for signaling.")
+    st.write("Collaborative notes & whiteboard with Firebase Realtime DB and JWT-secured access.")
     room = st.text_input("Room name:", value="demo-room")
+    if room:
+        payload = {"room": room, "user": name, "iat": int(time.time()), "exp": int(time.time()) + 3600}
+        token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
     if st.button("Open Peer Room"):
-        # embed the HTML and pass room as query param
-        with open("peer_room.html", "r", encoding='utf-8') as f:
+        with open("peer_room.html","r",encoding="utf-8") as f:
             html = f.read()
-        # simple replace of placeholder ROOM if needed
-        components.html(html + f"<script>/* room param already read by JS */</script>", height=520, scrolling=True)
+        html = html.replace("<!--JWT_TOKEN-->", token)
+        html = html.replace("<!--FIREBASE_CONFIG-->", json.dumps({
+            "apiKey": st.secrets["FIREBASE_API_KEY"],
+            "authDomain": st.secrets["FIREBASE_AUTH_DOMAIN"],
+            "databaseURL": st.secrets["FIREBASE_DB_URL"],
+            "projectId": st.secrets["FIREBASE_PROJECT_ID"],
+            "storageBucket": st.secrets["FIREBASE_STORAGE_BUCKET"],
+            "messagingSenderId": st.secrets["FIREBASE_MESSAGING_SENDER_ID"],
+            "appId": st.secrets["FIREBASE_APP_ID"],
+        }))
+        components.html(html, height=600, scrolling=True)
 
-# Progress & Leaderboard
+# ---------------------- WebRTC Live Room ----------------------
+st.header("Live Video Room 🎥")
+webrtc_streamer(key="edu_webrtc")
+
+# ---------------------- Progress & Leaderboard ----------------------
 elif page == "Progress & Leaderboard":
-    st.header("Progress")
+    st.header("Progress & Leaderboard")
     xp = db.get_xp(name)
     st.metric("XP", xp)
-    st.progress(min(xp / 200, 1.0))
+    st.progress(min(xp/200,1.0))
     st.subheader("Leaderboard")
     lb = db.get_leaderboard(limit=10)
     st.table(lb)
 
-# Settings
+# ---------------------- Settings ----------------------
 elif page == "Settings":
     st.header("Settings / Debug")
     st.write("Gemini available:", gemini.available)
     st.write("Model:", gemini.model)
     if st.button("Reset DB (demo)"):
         db.reset_db()
-        st.success("Reset done.")
-    st.markdown("**Assets config**")
+        st.success("DB reset done.")
+    st.markdown("Assets Config")
     st.write(ASSETS)
