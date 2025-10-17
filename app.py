@@ -1,6 +1,6 @@
 import streamlit as st
 import json, os, time, jwt, requests
-from utils import GeminiClient, tts_local
+from utils import GeminiClient
 from db import DB
 from streamlit_lottie import st_lottie
 import streamlit.components.v1 as components
@@ -34,7 +34,7 @@ JWT_SECRET = st.secrets["JWT_SECRET"]
 st.sidebar.image(ASSETS.get('logo_url',''), width=120)
 st.sidebar.title("EduGenie")
 name = st.sidebar.text_input("Your Name", value="Guest")
-page = st.sidebar.radio("Navigate to", ["Landing", "AI Tutor", "Upload & Summarize", "Quizzes", "Peer Rooms", "Progress & Leaderboard", "Settings"])
+page = st.sidebar.radio("Navigate to", ["Landing", "AI Tutor", "Upload & Summarize", "Quizzes", "Peer Rooms", "Live Room", "Progress & Leaderboard", "Settings"])
 
 # ---------------------- Landing Page ----------------------
 if page == "Landing":
