@@ -1,73 +1,38 @@
-# utils.py
-import os
-import json
-import tempfile
-from typing import Dict, Any, List
+import os, json, tempfile
+from typing import Dict, Any
 from gtts import gTTS
-from base64 import b64decode
-import google.generativeai as genai
 
-# -------------------------------
-# Gemini SDK Initialization
-# -------------------------------
-def init_gemini():
-    """Initialize Gemini SDK with API key."""
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise ValueError("❌ GEMINI_API_KEY not found in environment variables.")
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-1.5-flash")  # or "gemini-1.5-pro" for better quality
+USE_GENAI = False
+try:
+    from google import genai
+    USE_GENAI = True
+except:
+    USE_GENAI = False
 
-# -------------------------------
-# AI Chat / Tutor
-# -------------------------------
-def chat_with_gemini(prompt: str, temperature: float = 0.3) -> str:
-    """Simple chat interface with Gemini."""
-    model = init_gemini()
-    try:
-        response = model.generate_content(prompt, generation_config={"temperature": temperature})
-        return response.text
-    except Exception as e:
-        return f"[Error calling Gemini API: {e}]"
+class GeminiClient:
+    def __init__(self, api_key=None, model="gemini-2.5-flash"):
+        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        self.available = bool(self.api_key) and USE_GENAI
+        self.model = model
+        if self.available:
+            genai.configure(api_key=self.api_key)
+            try: self.client = genai.Client()
+            except: self.client = None
 
-# -------------------------------
-# Summarizer
-# -------------------------------
-def summarize_text(text: str) -> str:
-    """Summarize long content with flashcard-style notes."""
-    prompt = (
-        "You are a study assistant. Summarize the following text in concise bullet points "
-        "and generate 5 flashcard Q&A pairs for revision.\n\n"
-        f"Text:\n{text}"
-    )
-    return chat_with_gemini(prompt)
+    def chat(self, prompt: str, temperature: float = 0.2) -> Dict[str, Any]:
+        if not self.available: return {"mock": True, "text": prompt[:200]}
+        try:
+            if self.client:
+                resp = self.client.models.generate_content(model=self.model, contents=prompt, temperature=temperature)
+                return {"text": getattr(resp, "text", str(resp))}
+            else:
+                resp = genai.generate_text(model=self.model, prompt=prompt, temperature=temperature)
+                return {"text": resp.text}
+        except Exception as e:
+            return {"error": str(e)}
 
-# -------------------------------
-# Quiz Generator
-# -------------------------------
-def generate_quiz(topic: str, difficulty: str = "Medium", n_questions: int = 5) -> List[Dict[str, Any]]:
-    """Generate MCQ quiz questions in JSON format."""
-    prompt = (
-        f"Create {n_questions} multiple-choice questions about '{topic}'. "
-        f"Difficulty: {difficulty}. Return the result as a JSON list with fields: "
-        f"'question', 'options', 'correct_answer', and 'explanation'."
-    )
-    res = chat_with_gemini(prompt)
-    try:
-        data = json.loads(res)
-        if isinstance(data, list):
-            return data
-    except Exception:
-        # fallback if text is not valid JSON
-        return [{"question": res, "options": [], "correct_answer": "", "explanation": ""}]
-    return data
-
-# -------------------------------
-# Text-to-Speech (gTTS fallback)
-# -------------------------------
-def text_to_speech(text: str, lang: str = "en") -> str:
-    """Convert text to audio file (MP3)."""
-    tts = gTTS(text=text, lang=lang)
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    tts.save(tmp.name)
-    return tmp.name
+    def tts(self, text: str, lang: str="en") -> str:
+        tts = gTTS(text=text, lang=lang)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        tts.save(tmp.name)
+        return tmp.name
