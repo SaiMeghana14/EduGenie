@@ -49,7 +49,7 @@ db = DB('edugenie.db')
 JWT_SECRET = st.secrets.get("JWT_SECRET", "supersecret123")  # fallback if missing
 
 # ---------------------- Sidebar ----------------------
-st.sidebar.image(ASSETS.get('logo_url',''), width=120)
+st.sidebar.image(ASSETS.get('logo',''), width=120)
 st.sidebar.title("EduGenie 🚀")
 name = st.sidebar.text_input("Your Name", value="Guest")
 
