@@ -6,7 +6,7 @@ import streamlit.components.v1 as components
 from streamlit_webrtc import webrtc_streamer
 
 # ---------------------- Config ----------------------
-st.set_page_config(page_title='EduGenie (Gemini)', layout='wide', initial_sidebar_state='expanded')
+st.set_page_config(page_title='EduGenie ', layout='wide', initial_sidebar_state='expanded')
 st.markdown("<style> .stApp { background: #F8FAFC; } </style>", unsafe_allow_html=True)
 st.markdown("""
 <style>
@@ -16,6 +16,21 @@ a {
 }
 a:hover {
     text-decoration: underline;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+footer, .stAppFooter {
+    visibility: hidden;
+}
+a {
+    text-decoration: none;
+    color: #2563EB;
+}
+a:hover {
+    color: #1D4ED8;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -188,11 +203,25 @@ elif page == "Live Room":
 
 # ---------------------- Progress & Leaderboard ----------------------
 elif page == "Progress & Leaderboard":
-    st.header("🏆 Your Progress")
+    st.header("Progress & Leaderboard 🏆")
     xp = db.get_xp(name)
-    st.metric("XP Earned", xp)
-    st.progress(min(xp / 200, 1.0), text="Keep learning! 💪")
-    st.subheader("🌟 Leaderboard")
+    st.metric("XP", xp)
+    st.progress(min(xp / 200, 1.0))
+
+    # 🎖️ Show badges based on XP level
+    st.subheader("Your Learning Badge:")
+    if xp < 100:
+        st.image(ASSETS.get("badge_easy", ""), width=120)
+        st.caption("Level: Beginner 🌱 — Keep going!")
+    elif xp < 250:
+        st.image(ASSETS.get("badge_medium", ""), width=120)
+        st.caption("Level: Intermediate 🚀 — You’re doing great!")
+    else:
+        st.image(ASSETS.get("badge_hard", ""), width=120)
+        st.caption("Level: Expert 🧠 — You’re unstoppable!")
+
+    # 🏁 Leaderboard
+    st.subheader("Top Learners")
     lb = db.get_leaderboard(limit=10)
     st.table(lb)
 
