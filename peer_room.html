@@ -2,69 +2,72 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>EduGenie Peer Room (Collaborative)</title>
+    <title>EduGenie Peer Room</title>
     <style>
-      body { font-family: Arial, sans-serif; margin:0; padding:10px; }
+      body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 12px;}
       #container { display:flex; gap:12px; }
-      #textroom { flex:1; }
-      #whiteboard { flex:1; background:#fff; border:1px solid #eee; }
+      #notes { flex:1; }
+      #canvas { flex:1; border:1px solid #ddd; background:white; }
       textarea { width:100%; height:300px; }
-      #canvas { width:100%; height:300px; background:#fff; border:1px solid #ddd; }
+      canvas { width:100%; height:300px; border:1px solid #ccc; }
     </style>
   </head>
   <body>
-    <h3>EduGenie Peer Room (Collaborative)</h3>
+    <h3>EduGenie — Peer Room</h3>
     <div id="container">
-      <div id="textroom">
+      <div id="notes">
         <label>Shared Notes</label>
         <textarea id="sharedNotes"></textarea>
       </div>
-      <div id="whiteboard">
-        <label>Whiteboard (draw with mouse)</label>
-        <canvas id="canvas"></canvas>
+      <div id="canvas">
+        <label>Whiteboard</label>
+        <canvas id="wb"></canvas>
       </div>
     </div>
+
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <script>
-      // TODO: REPLACE with your Firebase project's config
+      // REPLACE the object below with your Firebase web config
       const firebaseConfig = {
-        apiKey: "YOUR_API_KEY",
-        authDomain: "YOUR_PROJECT.firebaseapp.com",
-        databaseURL: "https://YOUR_PROJECT.firebaseio.com",
-        projectId: "YOUR_PROJECT",
-        storageBucket: "YOUR_PROJECT.appspot.com",
-        messagingSenderId: "SENDER_ID",
-        appId: "APP_ID"
+        apiKey: "AIzaSyCM1qpEnT2Kd1zOBH8CLNFQtEi-u5_sxcM",
+        authDomain: "edugenie-fc7cc.firebaseapp.com",
+        projectId: "edugenie-fc7cc",
+        storageBucket: "edugenie-fc7cc.firebasestorage.app",
+        messagingSenderId: "195499665375",
+        appId: "1:195499665375:web:6c71d9270dd363f9de066a",
+        measurementId: "G-HPY6NW0QVH"
       };
       firebase.initializeApp(firebaseConfig);
       const db = firebase.database();
-      const roomId = (new URLSearchParams(window.location.search)).get('room') || 'default';
-      const notesRef = db.ref('rooms/' + roomId + '/notes');
-      const canvasRef = db.ref('rooms/' + roomId + '/canvas');
+      const params = new URLSearchParams(location.search);
+      const room = params.get('room') || 'default';
+      const notesRef = db.ref('rooms/' + room + '/notes');
+      const canvasRef = db.ref('rooms/' + room + '/canvas');
 
-      const textarea = document.getElementById('sharedNotes');
-      textarea.addEventListener('input', () => {
-        notesRef.set({text: textarea.value, ts: Date.now()});
+      const ta = document.getElementById('sharedNotes');
+      ta.addEventListener('input', () => {
+        notesRef.set({text: ta.value, ts: Date.now()});
       });
-      notesRef.on('value', (snap) => {
+      notesRef.on('value', snap => {
         const v = snap.val();
-        if (v && v.text !== textarea.value) {
-          textarea.value = v.text;
-        }
+        if(v && v.text !== ta.value) ta.value = v.text;
       });
 
-      // whiteboard simple: store strokes as PNG dataURL (inefficient but simple)
-      const canvas = document.getElementById('canvas');
+      // whiteboard basic
+      const canvas = document.getElementById('wb');
       canvas.width = canvas.clientWidth;
       canvas.height = 300;
       const ctx = canvas.getContext('2d');
       let drawing = false;
       canvas.addEventListener('mousedown', (e) => { drawing = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); });
       canvas.addEventListener('mousemove', (e) => { if(drawing){ ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); }});
-      canvas.addEventListener('mouseup', () => { drawing=false; canvasRef.set({image: canvas.toDataURL(), ts: Date.now()}); });
+      canvas.addEventListener('mouseup', () => {
+        drawing = false;
+        canvasRef.set({image: canvas.toDataURL(), ts: Date.now()});
+      });
 
-      canvasRef.on('value', (snap) => {
+      canvasRef.on('value', snap => {
         const v = snap.val();
         if(v && v.image){
           const img = new Image();
