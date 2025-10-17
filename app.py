@@ -68,18 +68,18 @@ elif page == "AI Tutor":
 
     col1, col2 = st.columns([3,1])
     with col1:
-    if st.button("Ask Gemini"):
-        with st.spinner("Thinking..."):
-            text = get_cached_response(query)
-            st.markdown("**EduGenie:**")
-            st.write(text)
-            
-            # TTS via GeminiClient
-            audio_file = gemini.tts(text)
-            st.audio(audio_file)
-            
-            # Cache in local DB
-            db.cache_set(f"chat:{query[:64]}", text, int(time.time()))
+        if st.button("Ask Gemini"):
+            with st.spinner("Thinking..."):
+                text = get_cached_response(query)
+                st.markdown("**EduGenie:**")
+                st.write(text)
+                
+                # TTS via GeminiClient
+                audio_file = gemini.tts(text)
+                st.audio(audio_file)
+                
+                # Cache in local DB
+                db.cache_set(f"chat:{query[:64]}", text, int(time.time()))
 
     with col2:
         st.subheader("Upload diagram / image")
