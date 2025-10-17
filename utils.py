@@ -1,109 +1,73 @@
-import os, time, json, tempfile
-from typing import Dict, Any, Optional
+# utils.py
+import os
+import json
+import tempfile
+from typing import Dict, Any, List
 from gtts import gTTS
 from base64 import b64decode
+import google.generativeai as genai
 
-# Try import google genai
-USE_GENAI = False
-try:
-    from google import genai  # official python-genai package
-    USE_GENAI = True
-except Exception:
-    USE_GENAI = False
+# -------------------------------
+# Gemini SDK Initialization
+# -------------------------------
+def init_gemini():
+    """Initialize Gemini SDK with API key."""
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise ValueError("❌ GEMINI_API_KEY not found in environment variables.")
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel("gemini-1.5-flash")  # or "gemini-1.5-pro" for better quality
 
-# For citation: examples and usage of genai python package are shown in Google GenAI docs.
-# See: https://ai.google.dev/gemini-api/docs/quickstart and python-genai docs. :contentReference[oaicite:3]{index=3}
+# -------------------------------
+# AI Chat / Tutor
+# -------------------------------
+def chat_with_gemini(prompt: str, temperature: float = 0.3) -> str:
+    """Simple chat interface with Gemini."""
+    model = init_gemini()
+    try:
+        response = model.generate_content(prompt, generation_config={"temperature": temperature})
+        return response.text
+    except Exception as e:
+        return f"[Error calling Gemini API: {e}]"
 
-class GeminiClient:
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-flash"):
-        # Read environment variables if not passed
-        self.api_key = api_key or os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
-        self.available = bool(self.api_key) and USE_GENAI
-        self.model = model
-        if self.available:
-            # Configure client (the python-genai package reads from env but explicit configure is fine)
-            genai.configure(api_key=self.api_key)
+# -------------------------------
+# Summarizer
+# -------------------------------
+def summarize_text(text: str) -> str:
+    """Summarize long content with flashcard-style notes."""
+    prompt = (
+        "You are a study assistant. Summarize the following text in concise bullet points "
+        "and generate 5 flashcard Q&A pairs for revision.\n\n"
+        f"Text:\n{text}"
+    )
+    return chat_with_gemini(prompt)
 
-            # Create a client instance (depending on version either genai.Client() or direct calls)
-            try:
-                self.client = genai.Client()
-            except Exception:
-                # older/newer libs may not need to instantiate
-                self.client = None
+# -------------------------------
+# Quiz Generator
+# -------------------------------
+def generate_quiz(topic: str, difficulty: str = "Medium", n_questions: int = 5) -> List[Dict[str, Any]]:
+    """Generate MCQ quiz questions in JSON format."""
+    prompt = (
+        f"Create {n_questions} multiple-choice questions about '{topic}'. "
+        f"Difficulty: {difficulty}. Return the result as a JSON list with fields: "
+        f"'question', 'options', 'correct_answer', and 'explanation'."
+    )
+    res = chat_with_gemini(prompt)
+    try:
+        data = json.loads(res)
+        if isinstance(data, list):
+            return data
+    except Exception:
+        # fallback if text is not valid JSON
+        return [{"question": res, "options": [], "correct_answer": "", "explanation": ""}]
+    return data
 
-    def chat(self, prompt: str, temperature: float = 0.2) -> Dict[str, Any]:
-        """Return a dict. If Gemini is not available, return mock response."""
-        if not self.available:
-            return {'mock': True, 'text': f'[MOCK] {prompt[:200]}'}
-        # Using python-genai SDK model example: models.generate_content / models.generate_text (varies by version)
-        # Below is a robust pattern that tries a couple API shapes.
-        try:
-            if self.client:
-                # Example: client.models.generate_content(...)
-                resp = self.client.models.generate_content(model=self.model, contents=prompt, temperature=temperature)
-                # response has .text
-                return {'text': getattr(resp, 'text', str(resp))}
-            else:
-                # fallback: genai.generate_text
-                resp = genai.generate_text(model=self.model, prompt=prompt, temperature=temperature)
-                return {'text': resp.text}
-        except Exception as e:
-            # return error info but keep app running
-            return {'error': str(e)}
-
-    def summarize(self, text: str, max_tokens: int = 400) -> str:
-        if not self.available:
-            return '[MOCK SUMMARY] ' + text[:400]
-        prompt = f"Summarize the following text into a concise study-friendly summary and list 6 flashcard Q&A pairs:\\n\\n{text}"
-        r = self.chat(prompt)
-        return r.get('text', '')
-
-    def generate_quiz(self, topic: str, difficulty: str = 'Medium', n_questions: int = 5):
-        if not self.available:
-            # mock data
-            return [{'q': f'Mock Q about {topic}', 'a': 'Mock Answer'} for _ in range(n_questions)]
-        prompt = (f"Generate {n_questions} multiple-choice questions (with correct answer) "
-                  f"on the topic: {topic}. Difficulty: {difficulty}. Provide JSON array of objects "
-                  f"with keys 'q', 'options', 'answer', and short 'explanation'.")
-        r = self.chat(prompt)
-        # attempt to parse JSON from r['text']
-        txt = r.get('text','')
-        try:
-            # If the model returns JSON, parse it. Otherwise return a simple text-wrapped quiz.
-            j = json.loads(txt)
-            return j
-        except Exception:
-            # fallback: create simple Qs
-            return [{'q': txt[:200], 'options': [], 'answer': '', 'explanation': ''}]
-
-    def tts(self, text: str, lang: str = 'en') -> str:
-        """Try to use Gemini TTS if available; else fallback to gTTS."""
-        if not self.available:
-            # gTTS fallback
-            return tts_local(text, lang)
-        # If the SDK supports speech synthesis, use it. Implementation differs across SDK versions.
-        try:
-            # Example pseudo-call (may need adaptation depending on SDK):
-            audio_resp = genai.audio.speech.synthesize(model="gpt-4o-mini-tts", input=text)
-            # audio_resp might be bytes or base64
-            if hasattr(audio_resp, 'audio'):
-                # save bytes
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-                tmp.write(audio_resp.audio)
-                tmp.flush()
-                return tmp.name
-            elif isinstance(audio_resp, dict) and 'audio' in audio_resp:
-                b = b64decode(audio_resp['audio'])
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-                tmp.write(b)
-                tmp.flush()
-                return tmp.name
-        except Exception:
-            # fallback to local gTTS
-            return tts_local(text, lang)
-
-def tts_local(text: str, lang: str = 'en') -> str:
+# -------------------------------
+# Text-to-Speech (gTTS fallback)
+# -------------------------------
+def text_to_speech(text: str, lang: str = "en") -> str:
+    """Convert text to audio file (MP3)."""
     tts = gTTS(text=text, lang=lang)
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     tts.save(tmp.name)
     return tmp.name
