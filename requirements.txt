@@ -1,18 +1,39 @@
-streamlit>=1.25
+# Streamlit core
+streamlit
+
+# Lottie animations
 streamlit-lottie
+
+# HTTP requests
 requests
+
+# Google Gemini AI SDK
 google-genai>=0.3.0
+
+# Text-to-Speech
 gTTS
+
+# PDF and text handling
 PyPDF2
+
+# Data analysis & visualization
 pandas
 plotly
+
+# Environment variables
 python-dotenv
+
+# Firebase Admin SDK
 firebase-admin
+
+# Real-time WebRTC support
 streamlit-webrtc
+
+# Images
 pillow
+
+# JSON Web Tokens
 PyJWT
-json
-os
-time
-jwt
-requests
+
+# Interactive canvas / drawing
+streamlit-drawable-canvas
