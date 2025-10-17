@@ -2,7 +2,6 @@ import streamlit as st
 import json, os, time, jwt, requests
 from utils import GeminiClient
 from db import DB
-from streamlit_lottie import st_lottie
 import streamlit.components.v1 as components
 from streamlit_webrtc import webrtc_streamer
 
@@ -15,51 +14,39 @@ ASSETS = {}
 try:
     with open('assets/config.json', 'r') as f:
         ASSETS = json.load(f)
-except Exception:
+except:
     ASSETS = {}
-
-def load_lottie_file(path):
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except:
-        return None
 
 # ---------------------- Clients ----------------------
 gemini = GeminiClient(api_key=os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY'))
 db = DB('edugenie.db')
-JWT_SECRET = st.secrets["JWT_SECRET"]
+JWT_SECRET = st.secrets.get("JWT_SECRET", "supersecret123")  # fallback if missing
 
 # ---------------------- Sidebar ----------------------
 st.sidebar.image(ASSETS.get('logo_url',''), width=120)
-st.sidebar.title("EduGenie")
+st.sidebar.title("EduGenie 🚀")
 name = st.sidebar.text_input("Your Name", value="Guest")
-page = st.sidebar.radio("Navigate to", ["Landing", "AI Tutor", "Upload & Summarize", "Quizzes", "Peer Rooms", "Live Room", "Progress & Leaderboard", "Settings"])
+page = st.sidebar.radio("Navigate to", ["Landing", "AI Tutor", "Upload & Summarize", "Quizzes", "Peer Rooms", Live Room, "Progress & Leaderboard", "Settings"])
 
 # ---------------------- Landing Page ----------------------
 if page == "Landing":
     col1, col2 = st.columns([2,3])
     with col1:
-        st.title("EduGenie — Gemini-Powered Learning 🚀")
-        st.write("Personalized, multimodal, gamified learning demo — no AWS required.")
-        st.markdown("- Gemini AI Tutor (text + voice)")
-        st.markdown("- Upload notes/PDFs → Summaries & Flashcards")
-        st.markdown("- Quizzes, XP & Leaderboard")
-        st.button("Get Started")
+        st.title("EduGenie — Gemini-Powered Learning 📚✨")
+        st.write("Personalized, multimodal, gamified learning — all in your browser!")
+        st.markdown("- Chat with AI Tutor (text + voice) 🤖🎤")
+        st.markdown("- Upload notes/PDFs → Summaries & Flashcards 📄💡")
+        st.markdown("- Quizzes, XP, Badges & Leaderboard 🏆🎯")
+        st.button("Start Learning! 🚀")
     with col2:
-        lottie = load_lottie_file('assets/your_animation.json')
-        if lottie:
-            st_lottie(lottie, height=320)
-        else:
-            st.image(ASSETS.get("logo_url", ""), width=200)
-
+        st.image("assets/hero.gif", width=320)  # Add a GIF for landing visual
         st.markdown("### Features")
-        st.write("Gemini multimodal tutor, offline caching, collaborative peer rooms, WebRTC live sessions.")
+        st.write("Multimodal AI Tutor, offline caching, collaborative peer rooms, live video sessions 🎥💻")
 
 # ---------------------- AI Tutor ----------------------
 elif page == "AI Tutor":
-    st.header("AI Tutor")
-    st.write("Chat with EduGenie. Use text or upload images/diagrams.")
+    st.header("AI Tutor 🤖")
+    st.write("Ask EduGenie anything, or upload diagrams/images for analysis.")
     query = st.text_area("Ask a question:", value="Explain Nyquist sampling theorem in simple terms.")
 
     def get_cached_response(prompt):
@@ -73,26 +60,22 @@ elif page == "AI Tutor":
                 text = get_cached_response(query)
                 st.markdown("**EduGenie:**")
                 st.write(text)
-                
                 # TTS via GeminiClient
                 audio_file = gemini.tts(text)
                 st.audio(audio_file)
-                
-                # Cache in local DB
                 db.cache_set(f"chat:{query[:64]}", text, int(time.time()))
-
     with col2:
-        st.subheader("Upload diagram / image")
+        st.subheader("Upload diagram / image 📷")
         img = st.file_uploader("Image (png/jpg/jpeg)", type=['png','jpg','jpeg'])
         if img is not None and st.button("Analyze Image"):
             with st.spinner("Analyzing..."):
-                prompt = "Analyze this image and explain what it likely shows, step-by-step."
+                prompt = "Analyze this image and explain it step-by-step."
                 result = gemini.chat(prompt + " (image attached).")
                 st.write(result.get('text', 'No response.'))
 
 # ---------------------- Upload & Summarize ----------------------
 elif page == "Upload & Summarize":
-    st.header("Upload Notes / PDF")
+    st.header("Upload Notes / PDF 📄")
     uploaded = st.file_uploader("Upload PDF or TXT", type=['pdf','txt'])
     if uploaded:
         raw = ""
@@ -107,10 +90,10 @@ elif page == "Upload & Summarize":
             with st.spinner("Generating..."):
                 summ = gemini.summarize(raw)
                 flashcards = gemini.generate_quiz(raw[:120], difficulty='Medium', n_questions=6)
-                st.subheader("Summary")
+                st.subheader("Summary 📜")
                 st.write(summ)
-                st.subheader("Flashcards")
-                for i,fc in enumerate(flashcards if isinstance(flashcards, list) else []):
+                st.subheader("Flashcards 🎴")
+                for i, fc in enumerate(flashcards if isinstance(flashcards, list) else []):
                     q = fc.get('q') if isinstance(fc, dict) else fc[0]
                     a = fc.get('a') if isinstance(fc, dict) else fc[1]
                     st.markdown(f"**Q{i+1}.** {q}")
@@ -118,7 +101,7 @@ elif page == "Upload & Summarize":
 
 # ---------------------- Quizzes ----------------------
 elif page == "Quizzes":
-    st.header("Generate Quiz")
+    st.header("Generate Quiz 📝")
     topic = st.text_input("Topic:", value="Fourier Transform")
     diff = st.selectbox("Difficulty", ["Easy","Medium","Hard"])
     n = st.slider("Number of Questions", 1, 10, 5)
@@ -140,11 +123,12 @@ elif page == "Quizzes":
         if st.button("Finish Quiz"):
             xp = score * (1 if diff=='Easy' else 2 if diff=='Medium' else 3)
             db.add_xp(name, xp)
-            st.success(f"Score: {score}/{len(quiz)}, XP earned: {xp}")
+            st.success(f"Score: {score}/{len(quiz)}, XP earned: {xp} 🎉")
+            st.balloons()
 
 # ---------------------- Peer Rooms ----------------------
 elif page == "Peer Rooms":
-    st.header("Peer Rooms — collaborative notes & whiteboard")
+    st.header("Peer Rooms — collaborative notes & whiteboard ✏️")
     st.write("Collaborative notes & whiteboard with Firebase Realtime DB and JWT-secured access.")
     room = st.text_input("Room name:", value="demo-room")
     if room:
@@ -175,7 +159,7 @@ elif page == "Live Room":
 
 # ---------------------- Progress & Leaderboard ----------------------
 elif page == "Progress & Leaderboard":
-    st.header("Progress & Leaderboard")
+    st.header("Progress & Leaderboard 🏆")
     xp = db.get_xp(name)
     st.metric("XP", xp)
     st.progress(min(xp/200,1.0))
@@ -185,7 +169,7 @@ elif page == "Progress & Leaderboard":
 
 # ---------------------- Settings ----------------------
 elif page == "Settings":
-    st.header("Settings / Debug")
+    st.header("Settings / Debug ⚙️")
     st.write("Gemini available:", gemini.available)
     st.write("Model:", gemini.model)
     if st.button("Reset DB (demo)"):
