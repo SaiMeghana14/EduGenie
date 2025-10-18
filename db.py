@@ -4,7 +4,7 @@ import pandas as pd
 from typing import List, Dict, Any
 import time
 
-class DB:
+class Database:
     def __init__(self, path="edugenie.db"):
         self.path = path
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
