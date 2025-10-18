@@ -37,32 +37,31 @@ class Database:
         self._conn.commit()
 
     def get_all_users(self):
-    """
-    Returns a list of all users with their XP and profile info (if any).
-    Each entry: {"name": ..., "xp": ..., "profile": {...}}
-    """
-    cur = self._conn.execute("SELECT user, xp, profile FROM users ORDER BY xp DESC")
-    users = []
-    for row in cur.fetchall():
-        profile_data = {}
-        if row[2]:  # profile column might be NULL
-            try:
-                profile_data = json.loads(row[2])
-            except json.JSONDecodeError:
-                profile_data = {}
-        users.append({
-            "name": row[0],
-            "xp": row[1],
-            "profile": profile_data
-        })
-    return users
+        """
+        Returns a list of all users with their XP and profile info (if any).
+        Each entry: {"name": ..., "xp": ..., "profile": {...}}
+        """
+        cur = self._conn.execute("SELECT user, xp, profile FROM users ORDER BY xp DESC")
+        users = []
+        for row in cur.fetchall():
+            profile_data = {}
+            if row[2]:  # profile column might be NULL
+                try:
+                    profile_data = json.loads(row[2])
+                except json.JSONDecodeError:
+                    profile_data = {}
+            users.append({
+                "name": row[0],
+                "xp": row[1],
+                "profile": profile_data
+            })
+        return users
 
     def ensure_user(self, name, xp=0, profile=None):
-    import json
-    profile_json = json.dumps(profile) if profile else None
-    cur = self._conn.cursor()
-    cur.execute("INSERT OR IGNORE INTO users (user, xp, profile) VALUES (?, ?, ?)", (name, xp, profile_json))
-    self._conn.commit()
+        profile_json = json.dumps(profile) if profile else None
+        cur = self._conn.cursor()
+        cur.execute("INSERT OR IGNORE INTO users (user, xp, profile) VALUES (?, ?, ?)", (name, xp, profile_json))
+        self._conn.commit()
         
     # XP / leaderboard
     def add_xp(self, user: str, xp: int):
@@ -88,14 +87,13 @@ class Database:
         self._conn.commit()
 
     def update_profile(self, name, profile: dict):
-    """
-    Update the JSON profile of a user.
-    """
-    import json
-    profile_json = json.dumps(profile)
-    cur = self._conn.cursor()
-    cur.execute("UPDATE users SET profile=? WHERE user=?", (profile_json, name))
-    self._conn.commit()
+        """
+        Update the JSON profile of a user.
+        """
+        profile_json = json.dumps(profile)
+        cur = self._conn.cursor()
+        cur.execute("UPDATE users SET profile=? WHERE user=?", (profile_json, name))
+        self._conn.commit()
     
     # cache
     def cache_set(self, key: str, value: str, ts: int=None):
