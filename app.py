@@ -17,6 +17,7 @@ try:
     HAS_STT = True
 except Exception:
     HAS_STT = False
+    
 # ---------------------- Config ----------------------
 st.set_page_config(page_title='EduGenie ', layout='wide', initial_sidebar_state='expanded')
 st.markdown("<style> .stApp { background: #F8FAFC; } </style>", unsafe_allow_html=True)
@@ -62,7 +63,7 @@ gemini = GeminiClient(api_key=GEMINI_API_KEY)
 db = DB('edugenie.db')  # sqlite wrapper (see db.py)
 learning_path = LearningPath(db=db)
 JWT_SECRET = st.secrets.get("JWT_SECRET", os.environ.get("JWT_SECRET", "supersecret123"))
-
+admin_key = st.secrets.get("ADMIN_KEY", "supersecret")
 # ---------------------- Sidebar ----------------------
 st.sidebar.image(ASSETS.get('logo',''), width=120)
 st.sidebar.title("EduGenie 🚀")
@@ -86,7 +87,8 @@ page = st.sidebar.radio(
         "Live Room",
         "Progress & Leaderboard",
         "Admin Analytics",
-        "Settings"
+        "Settings",
+        "Admin Dashboard"
     ]
 )
 st.sidebar.markdown("---")
@@ -415,6 +417,62 @@ elif page == "Settings":
         db.reset_db()
         st.success("✅ Database reset complete.")
     
+# ---------------------- Admin Dashboard ----------------------
+elif page == "Admin Dashboard":
+    st.header("🧑‍💼 EduGenie Admin Dashboard")
+    st.caption("Restricted access — for authorized administrators only.")
+
+    entered_key = st.text_input("🔑 Enter Admin Key:", type="password")
+    if entered_key == admin_key:
+        st.success("✅ Admin access granted!")
+
+        tab1, tab2, tab3 = st.tabs(["📊 Analytics", "🧱 Database", "👥 Users"])
+
+        with tab1:
+            st.subheader("Engagement Analytics 📈")
+            data = db.get_leaderboard(limit=50)
+            if data:
+                import pandas as pd
+                df = pd.DataFrame(data)
+                st.bar_chart(df.set_index("name")["xp"])
+                st.write(df)
+            else:
+                st.info("No data available yet.")
+
+            st.markdown("### Time Spent by Users")
+            st.progress(0.7, text="Average activity level (mock data)")
+
+        with tab2:
+            st.subheader("Database Tools 🧰")
+            if st.button("🗑️ Reset Entire Database"):
+                db.reset_db()
+                st.warning("⚠️ Database has been reset!")
+            st.download_button(
+                "⬇️ Export Leaderboard CSV",
+                data="\n".join([",".join(map(str, row)) for row in data]) if data else "",
+                file_name="leaderboard.csv",
+                mime="text/csv"
+            )
+
+        with tab3:
+            st.subheader("User Management 👥")
+            users = db.get_all_users() if hasattr(db, "get_all_users") else []
+            if users:
+                st.table(users)
+            else:
+                st.info("No registered users found.")
+            
+            new_xp_user = st.text_input("User Name to Update XP")
+            new_xp_value = st.number_input("New XP Value", min_value=0)
+            if st.button("💾 Update XP"):
+                if new_xp_user:
+                    db.update_xp(new_xp_user, new_xp_value)
+                    st.success(f"Updated XP for {new_xp_user} → {new_xp_value}")
+                else:
+                    st.warning("Please enter a valid username.")
+
+    else:
+        st.warning("🔒 Access denied — invalid admin key.")
 
 # ---------------------- Footer ----------------------
 st.markdown(
