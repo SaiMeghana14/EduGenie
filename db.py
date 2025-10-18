@@ -35,6 +35,10 @@ class DB:
         )""")
         self._conn.commit()
 
+    def get_all_users(self):
+    cur = self.conn.execute("SELECT name, xp FROM users ORDER BY xp DESC")
+    return [{"name": row[0], "xp": row[1]} for row in cur.fetchall()]
+        
     # XP / leaderboard
     def add_xp(self, user: str, xp: int):
         cur = self._conn.cursor()
@@ -54,6 +58,10 @@ class DB:
         rows = cur.fetchall()
         return [{"user": r[0], "xp": r[1]} for r in rows]
 
+    def update_xp(self, name, xp):
+    self.conn.execute("UPDATE users SET xp=? WHERE name=?", (xp, name))
+    self.conn.commit()
+    
     # cache
     def cache_set(self, key: str, value: str, ts: int=None):
         ts = ts or int(time.time())
