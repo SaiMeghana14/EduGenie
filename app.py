@@ -189,11 +189,6 @@ elif page == "AI Tutor":
 
         # 🎙️ Speech Input (if available)
         st.markdown("Or try speaking your question 👇")
-        try:
-            import speech_recognition as sr
-            HAS_STT = True
-        except ImportError:
-            HAS_STT = False
 
         if HAS_STT:
             if st.button("🎙️ Speak to EduGenie"):
@@ -221,8 +216,6 @@ elif page == "AI Tutor":
     with col2:
         st.subheader("📷 Image or Sketch Analysis")
         st.markdown("Draw or upload a concept diagram — EduGenie will explain it step by step!")
-
-        from streamlit_drawable_canvas import st_canvas
 
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
