@@ -5,6 +5,18 @@ from db import DB
 import streamlit.components.v1 as components
 from streamlit_webrtc import webrtc_streamer
 
+from learning_path import LearningPath
+from streamlit_drawable_canvas import st_canvas
+import plotly.express as px
+from reportlab.pdfgen import canvas as pdf_canvas
+from datetime import datetime, timedelta
+
+# Optional STT
+try:
+    import speech_recognition as sr
+    HAS_STT = True
+except Exception:
+    HAS_STT = False
 # ---------------------- Config ----------------------
 st.set_page_config(page_title='EduGenie ', layout='wide', initial_sidebar_state='expanded')
 st.markdown("<style> .stApp { background: #F8FAFC; } </style>", unsafe_allow_html=True)
@@ -44,14 +56,24 @@ except:
     ASSETS = {}
 
 # ---------------------- Clients ----------------------
-gemini = GeminiClient(api_key=os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY'))
-db = DB('edugenie.db')
-JWT_SECRET = st.secrets.get("JWT_SECRET", "supersecret123")  # fallback if missing
+# Model selection is supported; you can switch between 'gemini' and 'gpt' in sidebar
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
+gemini = GeminiClient(api_key=GEMINI_API_KEY)
+db = DB('edugenie.db')  # sqlite wrapper (see db.py)
+learning_path = LearningPath(db=db)
+JWT_SECRET = st.secrets.get("JWT_SECRET", os.environ.get("JWT_SECRET", "supersecret123"))
 
 # ---------------------- Sidebar ----------------------
 st.sidebar.image(ASSETS.get('logo',''), width=120)
 st.sidebar.title("EduGenie 🚀")
 name = st.sidebar.text_input("Your Name", value="Guest")
+
+# Model selector (Gemini / placeholder GPT switch)
+model_choice = st.sidebar.selectbox("AI Model", ["Gemini", "Gemini (safe)"])
+st.sidebar.markdown("---")
+
+# Toggle cloud sync
+use_cloud = st.sidebar.checkbox("Use Cloud Sync (Firestore/Supabase)", value=False)
 
 page = st.sidebar.radio(
     "Navigate to",
@@ -63,11 +85,43 @@ page = st.sidebar.radio(
         "Peer Rooms",
         "Live Room",
         "Progress & Leaderboard",
+        "Admin Analytics",
         "Settings"
     ]
 )
 st.sidebar.markdown("---")
 st.sidebar.info("Made with ❤️ for learners by EduGenie Team")
+
+# ---------------------- Utilities ----------------------
+@st.cache_data
+def cached_chat(prompt, model="Gemini"):
+    # caches responses for identical prompts
+    return gemini.chat(prompt).get('text', '')
+
+def create_certificate_pdf(username: str, course_name: str, out_path: str):
+    c = pdf_canvas.Canvas(out_path)
+    c.setFont("Helvetica-Bold", 24)
+    c.drawString(100, 700, "Certificate of Completion")
+    c.setFont("Helvetica", 16)
+    c.drawString(100, 650, f"This certifies that {username} has completed:")
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(100, 620, f"{course_name}")
+    c.drawString(100, 560, f"Date: {datetime.utcnow().strftime('%Y-%m-%d')}")
+    c.save()
+    return out_path
+
+def stt_listen_once(timeout=5):
+    if not HAS_STT:
+        return None
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        audio = r.listen(source, timeout=timeout)
+    try:
+        text = r.recognize_google(audio)
+        return text
+    except Exception:
+        return None
+        
 # ---------------------- Landing Page ----------------------
 if page == "Landing":
     col1, col2 = st.columns([2,3])
@@ -84,37 +138,116 @@ if page == "Landing":
         st.image("assets/hero.gif", width=320)
         st.markdown("### 🌟 Features")
         st.progress(100, text="AI Tutor • Quizzes • Live Peer Rooms • XP Tracker")
+        
+    # Daily challenge
+    if st.button("Show Today's Challenge 🔥"):
+        prompt = "Give one short STEM challenge suitable for a quick study session (one sentence)."
+        challenge = cached_chat(prompt)
+        st.info(f"🔥 Today's Challenge: {challenge}")
 
 # ---------------------- AI Tutor ----------------------
 elif page == "AI Tutor":
     st.header("AI Tutor 🤖")
-    st.caption("Ask EduGenie anything! Type your question or upload an image for visual analysis.")
+    st.caption("Ask EduGenie anything! Type, speak, or draw a diagram for analysis.")
 
-    query = st.text_area("💬 Ask a question:", value="Explain Nyquist sampling theorem in simple terms.")
+    # Contextual memory (previous chat)
+    prev_ctx = db.cache_get(f"context:{name}") or ""
 
-    def get_cached_response(prompt):
-        resp = gemini.chat(prompt)
-        return resp.get("text") or resp.get("mock") or resp.get("error") or ""
+    # User input
+    query = st.text_area("💬 Type your question here:", placeholder="E.g., Explain Nyquist sampling theorem in simple terms...")
 
-    col1, col2 = st.columns([3,1])
+    # Layout for chat + image/sketch
+    col1, col2 = st.columns([3, 2])
+
+    # ----------- Text / Voice Interaction -----------
     with col1:
-        if st.button("Ask Gemini 🧠"):
-            with st.spinner("Thinking and reasoning... 💭"):
-                text = get_cached_response(query)
-                st.markdown("### 📘 EduGenie says:")
-                st.write(text)
-                # TTS via GeminiClient
-                audio_file = gemini.tts(text)
-                st.audio(audio_file)
-                db.cache_set(f"chat:{query[:64]}", text, int(time.time()))
-                st.balloons()
+        st.subheader("💬 Ask or Speak")
+
+        # Type-based interaction
+        if st.button("Ask EduGenie 🧠"):
+            if not query.strip():
+                st.warning("Please type a question first.")
+            else:
+                with st.spinner("Thinking deeply... 💭"):
+                    prompt = prev_ctx + "\nUser: " + query
+                    text = gemini.chat(prompt).get("text", "")
+                    st.markdown("### 📘 EduGenie says:")
+                    st.write(text)
+
+                    # 🎧 Text-to-Speech
+                    audio_file = gemini.tts(text)
+                    if isinstance(audio_file, str) and os.path.exists(audio_file):
+                        st.audio(audio_file)
+
+                    # 💾 Cache response + update context memory
+                    db.cache_set(f"chat:{query[:64]}", text, int(time.time()))
+                    new_ctx = (prev_ctx + f"\nUser: {query}\nAI: {text}")[-4000:]
+                    db.cache_set(f"context:{name}", new_ctx, int(time.time()))
+                    st.balloons()
+
+        # 🎙️ Speech Input (if available)
+        st.markdown("Or try speaking your question 👇")
+        try:
+            import speech_recognition as sr
+            HAS_STT = True
+        except ImportError:
+            HAS_STT = False
+
+        if HAS_STT:
+            if st.button("🎙️ Speak to EduGenie"):
+                import tempfile
+                recognizer = sr.Recognizer()
+                with sr.Microphone() as source:
+                    st.info("Listening... Speak now 🎧")
+                    audio = recognizer.listen(source, phrase_time_limit=6)
+                    st.success("Got it! Processing your speech...")
+                    try:
+                        said = recognizer.recognize_google(audio)
+                        st.write(f"🗣️ You said: **{said}**")
+                        response = gemini.chat(prev_ctx + "\nUser: " + said).get("text", "")
+                        st.markdown("### 📘 EduGenie says:")
+                        st.write(response)
+                        audio_file = gemini.tts(response)
+                        if isinstance(audio_file, str) and os.path.exists(audio_file):
+                            st.audio(audio_file)
+                    except sr.UnknownValueError:
+                        st.error("Sorry, I couldn’t understand that. Please try again.")
+        else:
+            st.info("🎤 Speech recognition not installed. Run `pip install SpeechRecognition pyaudio` to enable it.")
+
+    # ----------- Image / Sketch Analysis -----------
     with col2:
-        st.subheader("📷 Image Analysis")
-        img = st.file_uploader("Upload image (png/jpg/jpeg)", type=['png','jpg','jpeg'])
-        if img is not None and st.button("Analyze Image 🧩"):
-            with st.spinner("Analyzing... 🔍"):
-                result = gemini.chat("Analyze this image step-by-step.")
-                st.write(result.get('text', 'No response.'))
+        st.subheader("📷 Image or Sketch Analysis")
+        st.markdown("Draw or upload a concept diagram — EduGenie will explain it step by step!")
+
+        from streamlit_drawable_canvas import st_canvas
+
+        canvas_result = st_canvas(
+            fill_color="rgba(255, 165, 0, 0.3)",
+            stroke_width=2,
+            stroke_color="#000000",
+            background_color="#ffffff",
+            height=250,
+            width=350,
+            drawing_mode="freedraw",
+            key="canvas_ai_tutor",
+        )
+
+        if canvas_result.image_data is not None and st.button("🖊️ Explain My Sketch"):
+            st.image(canvas_result.image_data)
+            with st.spinner("Interpreting your sketch... 🧩"):
+                result = gemini.chat("Explain this hand-drawn concept diagram in simple, visual terms.").get("text", "")
+                st.markdown("### 📘 EduGenie explains your sketch:")
+                st.write(result)
+
+        # Image Upload Option
+        img = st.file_uploader("Or upload an image (png/jpg/jpeg)", type=['png', 'jpg', 'jpeg'])
+        if img is not None and st.button("🔍 Analyze Uploaded Image"):
+            with st.spinner("Analyzing your image... 🧠"):
+                # Here we simulate visual understanding (if multimodal Gemini access available, replace this)
+                result = gemini.chat("Analyze this image and describe it like a teacher would.").get("text", "")
+                st.markdown("### 📘 EduGenie explains your image:")
+                st.write(result)
 
 # ---------------------- Upload & Summarize ----------------------
 elif page == "Upload & Summarize":
@@ -142,7 +275,14 @@ elif page == "Upload & Summarize":
                     a = fc.get('a', "No answer provided")
                     st.markdown(f"**Q{i+1}.** {q}")
                     st.write(f"**A.** {a}")
+                    
+                # cache summary offline
+                db.cache_set(f"summary:{uploaded.name}", summ, int(time.time()))
+                st.success("Summary cached for offline access!")
                 st.balloons()
+                
+                # Download summary
+                st.download_button("Download Summary (txt)", summ)
 
 # ---------------------- Quizzes ----------------------
 elif page == "Quizzes":
@@ -150,24 +290,43 @@ elif page == "Quizzes":
     topic = st.text_input("Enter a topic:", value="Fourier Transform")
     diff = st.selectbox("Difficulty Level", ["Easy","Medium","Hard"])
     n = st.slider("Number of Questions", 1, 10, 5)
+    
+    # show badge preview
+    badge_map = {"Easy": "badge_easy", "Medium": "badge_medium", "Hard": "badge_hard"}
+    badge_img = ASSETS.get(badge_map.get(diff, "badge_easy"))
+    if badge_img and os.path.exists(badge_img):
+        st.image(badge_img, width=80)
     if st.button("Generate Quiz 🧠"):
         with st.spinner("Crafting smart questions..."):
-            quiz = gemini.generate_quiz(topic, difficulty=diff, n_questions=n)
+            # adapt difficulty using learning_path
+            adapted_diff = learning_path.adapt_difficulty(name, diff)
+            quiz = gemini.generate_quiz(topic, difficulty=adapted_diff, n_questions=n)
             st.session_state['quiz'] = quiz
     if st.session_state.get('quiz'):
         quiz = st.session_state['quiz']
         score = 0
+        
+        # store start time to compute speed
+        start_time = time.time()
         for idx, q in enumerate(quiz):
             st.markdown(f"**Q{idx+1}.** {q.get('q', 'No question')}")
             ans = st.text_input(f"Your Answer Q{idx+1}", key=f"q{idx}")
-            if st.button(f"Submit Q{idx+1}"):
+            if st.button(f"Submit Q{idx+1}", key=f"sub{idx}"):
                 feedback = gemini.chat(f'Grade: Q: {q.get("q")} | User: {ans}. Give correct/incorrect + feedback.')
                 st.write(feedback.get('text','Feedback not available'))
                 if q.get('answer') and ans.strip().lower() == q.get('answer','').lower():
                     score += 1
         if st.button("Finish Quiz 🏁"):
+            elapsed = time.time() - start_time
             xp = score * (1 if diff=='Easy' else 2 if diff=='Medium' else 3)
+            
+            # small bonus for speed
+            if elapsed < max(30, n * 10):
+                xp += 1
             db.add_xp(name, xp)
+            
+            # update learning path with results
+            learning_path.record_quiz_result(user=name, topic=topic, score=score, total=len(quiz))
             st.success(f"✅ Score: {score}/{len(quiz)} | XP earned: {xp} ✨")
             st.balloons()
 
@@ -224,7 +383,29 @@ elif page == "Progress & Leaderboard":
     st.subheader("Top Learners")
     lb = db.get_leaderboard(limit=10)
     st.table(lb)
-
+    
+    # Certificate generation example
+    if st.button("Generate Completion Certificate (Sample)"):
+        pdf_path = f"certificate_{name.replace(' ','_')}.pdf"
+        create_certificate_pdf(name, "EduGenie Quick Course", pdf_path)
+        with open(pdf_path, "rb") as fh:
+            st.download_button(label="Download Certificate", data=fh, file_name=pdf_path, mime="application/pdf")
+            
+# ---------------------- Admin Analytics ----------------------
+elif page == "Admin Analytics":
+    st.header("📊 Admin Analytics")
+    st.caption("Visualize engagement and learning metrics.")
+    # require a simple admin key (in secrets)
+    if st.sidebar.text_input("Admin Key", type="password") != st.secrets.get("ADMIN_KEY",""):
+        st.warning("Enter admin key to view analytics.")
+    else:
+        df = db.get_activity_dataframe()  # returns pandas DataFrame
+        if df is None or df.empty:
+            st.info("No activity data yet.")
+        else:
+            fig = px.bar(df, x="topic", y="score", color="user", barmode="group")
+            st.plotly_chart(fig, use_container_width=True)
+            
 # ---------------------- Settings ----------------------
 elif page == "Settings":
     st.header("⚙️ Settings / Debug")
@@ -233,8 +414,7 @@ elif page == "Settings":
     if st.button("Reset DB 🔄"):
         db.reset_db()
         st.success("✅ Database reset complete.")
-    st.markdown("### Assets Configuration")
-    st.write(ASSETS)
+    
 
 # ---------------------- Footer ----------------------
 st.markdown(
