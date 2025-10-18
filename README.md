@@ -96,6 +96,8 @@ edugenie/
 ├── db.py                     # Local SQLite database (XP, cache)
 ├── utils.py                  # Gemini + TTS helper class
 ├── peer_room.html            # Collaborative Firebase room template
+├── learning_path.py
+├── api_server.py
 ├── assets/
 │   ├── logo.png
 │   ├── hero.gif
@@ -105,6 +107,8 @@ edugenie/
 │   ├── badge_hard.gif
 │   └── config.json
 ├──  firebase_utils.py
+├── .github/workflows/main.yml
+├── Dockerfile
 ├── quizzes.py
 ├── token_server.py
 ├── requirements.txt
