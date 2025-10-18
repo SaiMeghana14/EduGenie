@@ -457,12 +457,20 @@ elif page == "Admin Dashboard":
             
             new_xp_user = st.text_input("User Name to Update XP")
             new_xp_value = st.number_input("New XP Value", min_value=0)
-            if st.button("💾 Update XP"):
+            new_profile_data = st.text_area("Profile JSON (optional)")
+            
+            if st.button("💾 Update User"):
                 if new_xp_user:
+                    db.ensure_user(new_xp_user)  # create if doesn't exist
                     db.update_xp(new_xp_user, new_xp_value)
-                    st.success(f"Updated XP for {new_xp_user} → {new_xp_value}")
-                else:
-                    st.warning("Please enter a valid username.")
+                    if new_profile_data:
+                        try:
+                            import json
+                            profile_dict = json.loads(new_profile_data)
+                            db.update_profile(new_xp_user, profile_dict)
+                        except json.JSONDecodeError:
+                            st.error("Invalid JSON for profile")
+                    st.success(f"Updated XP and profile for {new_xp_user}")
 
     else:
         st.warning("🔒 Access denied — invalid admin key.")
