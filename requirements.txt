@@ -37,3 +37,8 @@ PyJWT
 
 # Interactive canvas / drawing
 streamlit-drawable-canvas
+
+speechrecognition
+reportlab
+fastapi
+uvicorn
