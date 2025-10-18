@@ -1,7 +1,7 @@
 import streamlit as st
 import json, os, time, jwt, requests
 from utils import GeminiClient
-from db import DB
+from db import Database
 import streamlit.components.v1 as components
 from streamlit_webrtc import webrtc_streamer
 
@@ -60,7 +60,7 @@ except:
 # Model selection is supported; you can switch between 'gemini' and 'gpt' in sidebar
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
 gemini = GeminiClient(api_key=GEMINI_API_KEY)
-db = DB('edugenie.db')  # sqlite wrapper (see db.py)
+db = Database('edugenie.db')  # sqlite wrapper (see db.py)
 learning_path = LearningPath(db=db)
 JWT_SECRET = st.secrets.get("JWT_SECRET", os.environ.get("JWT_SECRET", "supersecret123"))
 admin_key = st.secrets.get("ADMIN_KEY", "supersecret")
