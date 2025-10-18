@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 import pandas as pd
 from typing import List, Dict, Any
 import time
@@ -36,8 +37,32 @@ class Database:
         self._conn.commit()
 
     def get_all_users(self):
-    cur = self.conn.execute("SELECT name, xp FROM users ORDER BY xp DESC")
-    return [{"name": row[0], "xp": row[1]} for row in cur.fetchall()]
+    """
+    Returns a list of all users with their XP and profile info (if any).
+    Each entry: {"name": ..., "xp": ..., "profile": {...}}
+    """
+    cur = self._conn.execute("SELECT user, xp, profile FROM users ORDER BY xp DESC")
+    users = []
+    for row in cur.fetchall():
+        profile_data = {}
+        if row[2]:  # profile column might be NULL
+            try:
+                profile_data = json.loads(row[2])
+            except json.JSONDecodeError:
+                profile_data = {}
+        users.append({
+            "name": row[0],
+            "xp": row[1],
+            "profile": profile_data
+        })
+    return users
+
+    def ensure_user(self, name, xp=0, profile=None):
+    import json
+    profile_json = json.dumps(profile) if profile else None
+    cur = self._conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO users (user, xp, profile) VALUES (?, ?, ?)", (name, xp, profile_json))
+    self._conn.commit()
         
     # XP / leaderboard
     def add_xp(self, user: str, xp: int):
@@ -59,8 +84,18 @@ class Database:
         return [{"user": r[0], "xp": r[1]} for r in rows]
 
     def update_xp(self, name, xp):
-    self.conn.execute("UPDATE users SET xp=? WHERE name=?", (xp, name))
-    self.conn.commit()
+        self._conn.execute("UPDATE users SET xp=? WHERE name=?", (xp, name))
+        self._conn.commit()
+
+    def update_profile(self, name, profile: dict):
+    """
+    Update the JSON profile of a user.
+    """
+    import json
+    profile_json = json.dumps(profile)
+    cur = self._conn.cursor()
+    cur.execute("UPDATE users SET profile=? WHERE user=?", (profile_json, name))
+    self._conn.commit()
     
     # cache
     def cache_set(self, key: str, value: str, ts: int=None):
@@ -111,6 +146,4 @@ class Database:
         cur.execute("DROP TABLE IF EXISTS quiz_history")
         self._conn.commit()
         self._ensure_tables()
-
-    def get_leaderboard(self, limit=10):
-        return self.get_leaderboard(limit)
+        
