@@ -1,9 +1,11 @@
-# 🌟 EduGenie — Personalized AI Learning Companion
+<p align="center">
+  <img src="assets/logo.png" alt="EduGenie Logo" width="160"/>
+</p>
+
+# 🌟 EduGenie - Personalized AI Learning Companion
 
 **Empower students to learn smarter, not harder.**  
 EduGenie combines **Google Gemini AI**, **interactive quizzes**, **real-time collaboration**, and **live video rooms** — all inside a single Streamlit app.  
-
-[Hero](assets/hero.gif)
 
 ---
 
@@ -84,7 +86,9 @@ python -c "import secrets; print(secrets.token_hex(32))"
 streamlit run app.py
 ```
 
-Open your browser at 👉 `http://localhost:8501`
+### 🌐 Live Demo
+[👉 Try EduGenie on Streamlit](https://edugenie-akq5vbrtz8pahgrgr8d8uv.streamlit.app/)
+
 
 ---
 
@@ -107,7 +111,9 @@ edugenie/
 │   ├── badge_hard.gif
 │   └── config.json
 ├──  firebase_utils.py
-├── .github/workflows/main.yml
+├── .github
+     └── workflows
+          └── main.yml
 ├── Dockerfile
 ├── quizzes.py
 ├── token_server.py
