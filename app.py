@@ -1,5 +1,7 @@
 import streamlit as st
 import json, os, time, jwt, requests
+import boto3
+import math
 from utils import GeminiClient
 from db import Database
 import streamlit.components.v1 as components
@@ -64,13 +66,14 @@ db = Database('edugenie.db')  # sqlite wrapper (see db.py)
 learning_path = LearningPath(db=db)
 JWT_SECRET = st.secrets.get("JWT_SECRET", os.environ.get("JWT_SECRET", "supersecret123"))
 admin_key = st.secrets.get("ADMIN_KEY", "supersecret")
+
 # ---------------------- Sidebar ----------------------
 st.sidebar.image(ASSETS.get('logo',''), width=120)
 st.sidebar.title("EduGenie 🚀")
 name = st.sidebar.text_input("Your Name", value="Guest")
 
 # Model selector (Gemini / placeholder GPT switch)
-model_choice = st.sidebar.selectbox("AI Model", ["Gemini", "Gemini (safe)"])
+model_choice = st.sidebar.selectbox("AI Model", ["Gemini", "Gemini (safe)", "Claude (AWS Bedrock)"])
 st.sidebar.markdown("---")
 
 # Toggle cloud sync
@@ -81,6 +84,7 @@ page = st.sidebar.radio(
     [
         "Landing",
         "AI Tutor",
+        "AI Learning Planner",
         "Upload & Summarize",
         "Quizzes",
         "Peer Rooms",
@@ -97,8 +101,11 @@ st.sidebar.info("Made with ❤️ for learners by EduGenie Team")
 # ---------------------- Utilities ----------------------
 @st.cache_data
 def cached_chat(prompt, model="Gemini"):
-    # caches responses for identical prompts
-    return gemini.chat(prompt).get('text', '')
+    if "Claude" in model:
+        return bedrock_claude_chat(prompt)
+    else:
+        return gemini.chat(prompt).get('text', '')
+
 
 def create_certificate_pdf(username: str, course_name: str, out_path: str):
     c = pdf_canvas.Canvas(out_path)
@@ -123,6 +130,30 @@ def stt_listen_once(timeout=5):
         return text
     except Exception:
         return None
+
+# AWS Bedrock (Claude 3 Sonnet)
+bedrock_client = boto3.client(
+    service_name="bedrock-runtime",
+    region_name="us-east-1"
+)
+
+def bedrock_claude_chat(prompt: str, model="anthropic.claude-3-sonnet-20240229"):
+    body = {
+        "modelId": model,
+        "contentType": "application/json",
+        "accept": "application/json",
+        "body": json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 400,
+            "messages": [{"role": "user", "content": prompt}]
+        })
+    }
+    try:
+        response = bedrock_client.invoke_model(**body)
+        output = json.loads(response["body"].read())
+        return output["content"][0]["text"]
+    except Exception as e:
+        return f"[Error using Claude: {str(e)}]"
         
 # ---------------------- Landing Page ----------------------
 if page == "Landing":
@@ -160,6 +191,35 @@ elif page == "AI Tutor":
 
     # Layout for chat + image/sketch
     col1, col2 = st.columns([3, 2])
+
+    # ---------------------- AI Learning Planner ----------------------
+    elif page == "AI Learning Planner":
+        st.header("🎯 AI Learning Planner (Claude Sonnet on AWS)")
+        st.write("Your autonomous AI tutor that plans and adapts your study journey based on your performance!")
+    
+        user_goals = st.text_area("What do you want to achieve this week? ✍️", placeholder="e.g., Master Trigonometry and Fourier basics.")
+        if st.button("Generate My 3-Day Learning Plan"):
+            with st.spinner("Analyzing your progress and crafting a personalized plan..."):
+                history = db.get_recent_quiz_scores(name, limit=10)
+                history_text = json.dumps(history)
+                prompt = f"""
+    You are an AI learning agent. Analyze this quiz history:
+    {history_text}
+    
+    User Goal: {user_goals}
+    
+    Create a 3-day learning plan with:
+    - Focus topics
+    - Key concepts to master
+    - Practice problem ideas
+    - Daily motivation quote
+    Output in clear markdown format.
+                """
+                plan = bedrock_claude_chat(prompt)
+                st.markdown("### 📘 Your Personalized 3-Day Learning Plan")
+                st.markdown(plan)
+                db.cache_set(f"learning_plan:{name}", plan)
+                st.success("✅ Plan generated and saved!")
 
     # ----------- Text / Voice Interaction -----------
     with col1:
@@ -357,25 +417,47 @@ elif page == "Live Room":
 
 # ---------------------- Progress & Leaderboard ----------------------
 elif page == "Progress & Leaderboard":
-    st.header("Progress & Leaderboard 🏆")
+    st.header("📊 Your Progress Dashboard")
+
+    col1, col2 = st.columns([2, 1])
     xp = db.get_xp(name)
-    st.metric("XP", xp)
-    st.progress(min(xp / 200, 1.0))
+    level = "Beginner" if xp < 100 else "Intermediate" if xp < 250 else "Expert"
+    progress_pct = min(xp / 300, 1.0) * 100
 
-    # 🎖️ Show badges based on XP level
-    st.subheader("Your Learning Badge:")
-    if xp < 100:
-        st.image(ASSETS.get("badge_easy", ""), width=120)
-        st.caption("Level: Beginner 🌱 — Keep going!")
-    elif xp < 250:
-        st.image(ASSETS.get("badge_medium", ""), width=120)
-        st.caption("Level: Intermediate 🚀 — You’re doing great!")
-    else:
-        st.image(ASSETS.get("badge_hard", ""), width=120)
-        st.caption("Level: Expert 🧠 — You’re unstoppable!")
+    with col1:
+        st.subheader(f"Welcome, {name} 👋")
+        st.markdown(f"### 🌟 Level: **{level}**")
+        st.progress(progress_pct / 100)
+        st.metric("XP", f"{xp} pts")
 
-    # 🏁 Leaderboard
-    st.subheader("Top Learners")
+        # XP Ring
+        fig = px.pie(
+            values=[xp, max(0, 300 - xp)],
+            names=["XP", "Remaining"],
+            hole=0.7,
+            color_discrete_sequence=["#2563EB", "#E5E7EB"]
+        )
+        fig.update_traces(textinfo="none")
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        st.subheader("🏅 Badges")
+        if xp < 100:
+            st.image(ASSETS.get("badge_easy", ""), width=80)
+            st.caption("Beginner 🌱")
+        elif xp < 250:
+            st.image(ASSETS.get("badge_medium", ""), width=80)
+            st.caption("Intermediate 🚀")
+        else:
+            st.image(ASSETS.get("badge_hard", ""), width=80)
+            st.caption("Expert 🧠")
+
+        if xp >= 200:
+            st.success("🎉 Genie Mentor says: 'You’re ready to unlock Advanced Quizzes!'")
+        else:
+            st.info("💡 Keep going! Earn 50 more XP to unlock new topics!")
+
+    st.markdown("### 🏁 Leaderboard")
     lb = db.get_leaderboard(limit=10)
     st.table(lb)
     
