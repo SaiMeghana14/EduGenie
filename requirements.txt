@@ -42,3 +42,4 @@ speechrecognition
 reportlab
 fastapi
 uvicorn
+boto3
