@@ -101,11 +101,7 @@ st.sidebar.info("Made with ❤️ for learners by EduGenie Team")
 # ---------------------- Utilities ----------------------
 @st.cache_data
 def cached_chat(prompt, model="Gemini"):
-    if "Claude" in model:
-        return bedrock_claude_chat(prompt)
-    else:
-        return gemini.chat(prompt).get('text', '')
-
+    return gemini.chat(prompt).get('text', '')
 
 def create_certificate_pdf(username: str, course_name: str, out_path: str):
     c = pdf_canvas.Canvas(out_path)
@@ -130,36 +126,12 @@ def stt_listen_once(timeout=5):
         return text
     except Exception:
         return None
-
-# AWS Bedrock (Claude 3 Sonnet)
-bedrock_client = boto3.client(
-    service_name="bedrock-runtime",
-    region_name="us-east-1"
-)
-
-def bedrock_claude_chat(prompt: str, model="anthropic.claude-3-sonnet-20240229"):
-    body = {
-        "modelId": model,
-        "contentType": "application/json",
-        "accept": "application/json",
-        "body": json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 400,
-            "messages": [{"role": "user", "content": prompt}]
-        })
-    }
-    try:
-        response = bedrock_client.invoke_model(**body)
-        output = json.loads(response["body"].read())
-        return output["content"][0]["text"]
-    except Exception as e:
-        return f"[Error using Claude: {str(e)}]"
         
 # ---------------------- Landing Page ----------------------
 if page == "Landing":
     col1, col2 = st.columns([2,3])
     with col1:
-        st.title("EduGenie — Gemini-Powered Learning 📚✨")
+        st.title("EduGenie — Personalized AI Learning Companion 📚✨")
         st.markdown("### 🧠 Personalized | 📊 Gamified | 🎯 Fun Learning Experience")
         st.markdown("- Chat with AI Tutor (text + voice) 🤖🎤")
         st.markdown("- Upload notes & get instant summaries 📄💡")
