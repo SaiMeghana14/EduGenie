@@ -154,6 +154,16 @@ EduGenie helps students:
 
 ---
 
+## 💡 Future Enhancements
+
+- 📈 Adaptive quiz difficulty
+- 🌍 Multilingual voice tutoring
+- 🧩 Integration with Blynk or Firebase Cloud for learning analytics
+- 🧭 AI Progress Dashboard
+- 🧑‍🏫 Gamified study sessions with leaderboards
+
+---
+
 ## 👥 Team
 
 **Project:** *EduGenie – Personalized AI Tutor*  
@@ -168,3 +178,5 @@ EduGenie helps students:
 - Streamlit for its simplicity and UI magic.  
 - Firebase Realtime Database for collaboration.  
 - `streamlit-webrtc` for seamless live rooms.
+
+✨ “Education isn’t one-size-fits-all — and neither is EduGenie.”
