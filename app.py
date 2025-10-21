@@ -192,43 +192,6 @@ elif page == "AI Tutor":
     # Layout for chat + image/sketch
     col1, col2 = st.columns([3, 2])
 
-# ---------------------- AI Learning Planner ----------------------
-elif page == "AI Learning Planner":
-    st.header("🎯 AI Learning Planner")
-    st.caption("EduGenie analyzes your progress and creates a custom 3-day study plan using Gemini!")
-
-    user_goals = st.text_area(
-        "What do you want to achieve this week? ✍️",
-        placeholder="e.g., Master Trigonometry and Fourier basics."
-    )
-
-    if st.button("✨ Generate My Learning Plan"):
-        with st.spinner("Analyzing your quiz history and crafting a plan..."):
-            history = db.get_recent_quiz_scores(name, limit=10)
-            history_text = json.dumps(history)
-
-            prompt = f"""
-You are EduGenie, an AI tutor that creates personalized learning plans.
-Analyze the student's quiz history and current goals to build a 3-day study plan.
-
-Quiz History:
-{history_text}
-
-User Goal: {user_goals}
-
-Provide a markdown-formatted output with:
-- Day 1: Topics, short explanation, and 2 practice questions
-- Day 2: Topics, example problem and mini quiz
-- Day 3: Review, real-world application, and motivational quote
-            """
-
-            plan = cached_chat(prompt)
-            st.markdown("### 📘 Your Personalized 3-Day Learning Plan")
-            st.markdown(plan)
-            db.cache_set(f"learning_plan:{name}", plan)
-            st.balloons()
-
-
     # ----------- Text / Voice Interaction -----------
     with col1:
         st.subheader("💬 Ask or Speak")
@@ -312,6 +275,42 @@ Provide a markdown-formatted output with:
                 st.markdown("### 📘 EduGenie explains your image:")
                 st.write(result)
 
+# ---------------------- AI Learning Planner ----------------------
+elif page == "AI Learning Planner":
+    st.header("🎯 AI Learning Planner")
+    st.caption("EduGenie analyzes your progress and creates a custom 3-day study plan using Gemini!")
+
+    user_goals = st.text_area(
+        "What do you want to achieve this week? ✍️",
+        placeholder="e.g., Master Trigonometry and Fourier basics."
+    )
+
+    if st.button("✨ Generate My Learning Plan"):
+        with st.spinner("Analyzing your quiz history and crafting a plan..."):
+            history = db.get_recent_quiz_scores(name, limit=10)
+            history_text = json.dumps(history)
+
+            prompt = f"""
+You are EduGenie, an AI tutor that creates personalized learning plans.
+Analyze the student's quiz history and current goals to build a 3-day study plan.
+
+Quiz History:
+{history_text}
+
+User Goal: {user_goals}
+
+Provide a markdown-formatted output with:
+- Day 1: Topics, short explanation, and 2 practice questions
+- Day 2: Topics, example problem and mini quiz
+- Day 3: Review, real-world application, and motivational quote
+            """
+
+            plan = cached_chat(prompt)
+            st.markdown("### 📘 Your Personalized 3-Day Learning Plan")
+            st.markdown(plan)
+            db.cache_set(f"learning_plan:{name}", plan)
+            st.balloons()
+            
 # ---------------------- Upload & Summarize ----------------------
 elif page == "Upload & Summarize":
     st.header("📄 Upload Notes or PDFs")
