@@ -13,32 +13,21 @@ class GeminiClient:
     """
     def __init__(self, api_key: str = None, model: str = "gemini-1.5-flash"):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        self.model_name = model
+        self.model = model
         self.available = bool(self.api_key)
 
         if self.available:
             genai.configure(api_key=self.api_key)
-            try:
-                self.model = genai.GenerativeModel(self.model_name)
-            except Exception as e:
-                print(f"⚠️ Error loading Gemini model: {e}")
-                self.available = False
-                self.model = None
-        else:
-            self.model = None
 
-    def chat(self, prompt: str, temperature: float = 0.3) -> Dict[str, Any]:
-        """
-        Send a chat prompt to Gemini and return a text response.
-        """
+    def chat(self, prompt: str, temperature: float = 0.2) -> Dict[str, Any]:
         if not self.available:
-            return {"text": f"[MOCK RESPONSE] {prompt[:150]}"}
-
+            return {"mock": True, "text": f"[MOCK RESPONSE] {prompt[:200]}"}
+    
         try:
-            response = self.model.generate_content(prompt)
+            response = genai.GenerativeModel(self.model).generate_content(prompt)
             return {"text": response.text}
         except Exception as e:
-            return {"text": f"[Error: {e}]"}
+            return {"error": str(e)}
 
     def summarize(self, text: str, max_tokens: int = 400) -> str:
         if not text:
