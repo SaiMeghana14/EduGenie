@@ -101,7 +101,10 @@ st.sidebar.info("Made with ❤️ for learners by EduGenie Team")
 # ---------------------- Utilities ----------------------
 @st.cache_data
 def cached_chat(prompt, model="Gemini"):
-    return gemini.chat(prompt).get('text', '')
+    response = gemini.chat(prompt)
+    if "error" in response:
+        st.error(response["error"])
+    return response.get("text", "")
 
 def create_certificate_pdf(username: str, course_name: str, out_path: str):
     c = pdf_canvas.Canvas(out_path)
