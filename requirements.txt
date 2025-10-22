@@ -9,6 +9,7 @@ requests
 
 # Google Gemini AI SDK
 google-genai>=0.3.0
+google-generativeai
 
 # Text-to-Speech
 gTTS
