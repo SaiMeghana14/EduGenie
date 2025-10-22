@@ -1,46 +1,32 @@
-# Streamlit core
+# --- Core ---
 streamlit
-
-# Lottie animations
-streamlit-lottie
-
-# HTTP requests
 requests
-
-# Google Gemini AI SDK
-google-genai>=0.3.0
-google-generativeai
-
-# Text-to-Speech
-gTTS
-
-# PDF and text handling
-PyPDF2
-
-# Data analysis & visualization
+python-dotenv
+pillow
 pandas
 plotly
 
-# Environment variables
-python-dotenv
+# --- AI SDKs ---
+google-generativeai>=0.4.0  
 
-# Firebase Admin SDK
+# --- Text & Audio ---
+gTTS
+speechrecognition
+
+# --- Firebase & Auth ---
 firebase-admin
-
-# Real-time WebRTC support
-streamlit-webrtc
-
-# Images
-pillow
-
-# JSON Web Tokens
 PyJWT
 
-# Interactive canvas / drawing
+# --- Visualization & UI ---
+streamlit-lottie
 streamlit-drawable-canvas
+streamlit-webrtc
 
-speechrecognition
+# --- Documents ---
+PyPDF2
 reportlab
+
+# --- Backend Support ---
 fastapi
 uvicorn
 boto3
